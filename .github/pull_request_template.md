@@ -25,10 +25,12 @@
 
 // Создайте PR.
 // Дождитесь отработки Travis CI, после чего нажмите на зеленую галочку -> Details -> The build -> скопируйте весь лог тестирования.
-// Откройте PR на редактирование (сверху справа три точки->Edit) и добавьте сюда скопированный лог тестирования в тройных кавычках для сохранения форматирования и под спойлером для компактности и удобства:
+// Откройте PR на редактирование (сверху справа три точки->Edit) и добавьте сюда скопированный лог тестирования внутри тега <pre> для сохранения форматирования и под спойлером для компактности и удобства:
 
 <details><summary>Travis CI</summary><p>
-./build/test_sift
+
+<pre>
+$ ./build/test_sift
 Running main() from /home/travis/build/PhotogrammetryCourse/PhotogrammetryTasks2021/libs/3rdparty/libgtest/googletest/src/gtest_main.cc
 [==========] Running 22 tests from 1 test suite.
 [----------] Global test environment set-up.
@@ -41,4 +43,6 @@ Running main() from /home/travis/build/PhotogrammetryCourse/PhotogrammetryTasks2
 [----------] Global test environment tear-down
 [==========] 22 tests from 1 test suite ran. (12918 ms total)
 [  PASSED  ] 22 tests.
+</pre>
+
 </p></details>
