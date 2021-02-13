@@ -380,4 +380,5 @@ bool phg::SIFT::buildDescriptor(const cv::Mat &img, float px, float py, double d
             }
         }
     }
+    return true;
 }
