@@ -62,6 +62,8 @@ double diffAngles(double angle0, double angle1) {
         }
         rassert(diff >= -180 && diff <= 180, 233536136131);
         return diff;
+    } else {
+        return 0.0;
     }
 }
 
