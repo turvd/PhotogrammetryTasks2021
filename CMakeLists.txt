@@ -40,6 +40,9 @@ set(SOURCES
         src/phg/matching/descriptor_matcher.h
         src/phg/matching/bruteforce_matcher.cpp
         src/phg/matching/bruteforce_matcher.h
+        src/phg/matching/gms_matcher.cpp
+        src/phg/matching/gms_matcher.h
+        src/phg/matching/gms_matcher_impl.h
         src/phg/matching/flann_matcher.cpp
         src/phg/matching/flann_matcher.h
         src/phg/matching/flann_factory.h

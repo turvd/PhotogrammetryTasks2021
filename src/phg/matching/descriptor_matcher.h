@@ -15,7 +15,6 @@ namespace phg {
                                           const std::vector<cv::KeyPoint> keypoints_query,
                                           const std::vector<cv::KeyPoint> keypoints_train,
                                           std::vector<cv::DMatch> &filtered_matches);
-
     };
 
 }

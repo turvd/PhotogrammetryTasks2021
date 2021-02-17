@@ -1,6 +1,6 @@
 #include "homography.h"
 
-//#include <opencv2/calib3d/calib3d.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
 #include <iostream>
 
 namespace {
@@ -221,13 +221,6 @@ namespace {
 //        return best_H;
     }
 
-    // можно использовавть для тестирования метод оценки гомографии, встроенный в opencv
-    // чтобы заработало, нужно пересобрать библиотеку с дополнительным модулем calib3d (см. инструкцию в корневом CMakeLists.txt)
-//    cv::Mat cv_estimateHomographyRANSAC(const std::vector<cv::Point2f> &points_lhs, const std::vector<cv::Point2f> &points_rhs)
-//    {
-//        return cv::findHomography(points_lhs, points_rhs, cv::RANSAC);
-//    }
-
 }
 
 cv::Mat phg::findHomography(const std::vector<cv::Point2f> &points_lhs, const std::vector<cv::Point2f> &points_rhs)
@@ -235,9 +228,23 @@ cv::Mat phg::findHomography(const std::vector<cv::Point2f> &points_lhs, const st
     return estimateHomographyRANSAC(points_lhs, points_rhs);
 }
 
+// чтобы заработало, нужно пересобрать библиотеку с дополнительным модулем calib3d (см. инструкцию в корневом CMakeLists.txt)
+cv::Mat phg::findHomographyCV(const std::vector<cv::Point2f> &points_lhs, const std::vector<cv::Point2f> &points_rhs)
+{
+    return cv::findHomography(points_lhs, points_rhs, cv::RANSAC);
+}
+
 // T - 3x3 однородная матрица, например, гомография
-// таким преобразованием внутри занимается функция cv::warpPerspective
+// таким преобразованием внутри занимается функции cv::perspectiveTransform и cv::warpPerspective
 cv::Point2d phg::transformPoint(const cv::Point2d &pt, const cv::Mat &T)
 {
     throw std::runtime_error("not implemented yet");
+}
+
+cv::Point2d phg::transformPointCV(const cv::Point2d &pt, const cv::Mat &T) {
+    // ineffective but ok for testing
+    std::vector<cv::Point2f> tmp0 = {pt};
+    std::vector<cv::Point2f> tmp1(1);
+    cv::perspectiveTransform(tmp0, tmp1, T);
+    return tmp1[0];
 }
