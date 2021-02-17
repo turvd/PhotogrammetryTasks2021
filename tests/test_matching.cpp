@@ -10,7 +10,7 @@
 #include <phg/matching/flann_matcher.h>
 #include <phg/sift/sift.h>
 #include <libutils/timer.h>
-#include <libutils/bbox2.h>
+#include <phg/sfm/panorama_stitcher.h>
 
 
 #include "utils/test_utils.h"
@@ -82,95 +82,6 @@ namespace {
         detector->detectAndCompute( img2, noArray(), keypoints2, descriptors2 );
 
         return getHomography(keypoints1, keypoints2, descriptors1, descriptors2);
-    }
-
-    cv::Mat stitchPanorama(const std::vector<cv::Mat> &imgs, const std::vector<int> &parent)
-    {
-        const int n_images = imgs.size();
-
-        std::vector<char> dH_computed(n_images);
-        std::vector<cv::Mat> dHs(n_images);
-
-        std::vector<cv::Mat> Hs(n_images);
-        for (int i = 0; i < n_images; ++i) {
-            cv::Mat H = cv::Mat::eye(3, 3, CV_64FC1);
-
-            int p = i;
-            while (parent[p] != -1) {
-                if (dH_computed[p]) {
-                    cv::Mat dH = dHs[p];
-                    H = dH * H;
-                } else {
-                    cv::Mat dH = getHomography(imgs[p], imgs[parent[p]]);
-                    H = dH * H;
-                    dHs[p] = dH;
-                    dH_computed[p] = true;
-                }
-                p = parent[p];
-            }
-
-            Hs[i] = H;
-        }
-
-        bbox2<double, cv::Point2d> bbox;
-        for (int i = 0; i < n_images; ++i) {
-            double w = imgs[i].cols;
-            double h = imgs[i].rows;
-            bbox.grow(phg::transformPoint(cv::Point2d(0.0, 0.0), Hs[i]));
-            bbox.grow(phg::transformPoint(cv::Point2d(w, 0.0), Hs[i]));
-            bbox.grow(phg::transformPoint(cv::Point2d(w, h), Hs[i]));
-            bbox.grow(phg::transformPoint(cv::Point2d(0, h), Hs[i]));
-        }
-
-        std::cout << "bbox: " << bbox.max() << ", " << bbox.min() << std::endl;
-
-        int result_width = bbox.width() + 1;
-        int result_height = bbox.height() + 1;
-
-        cv::Mat result = cv::Mat::zeros(result_height, result_width, CV_8UC3);
-
-        // produces empty space between pixels
-//        for (int i = 0; i < n_images; ++i) {
-//            for (int y = 0; y < imgs[i].rows; ++y) {
-//                for (int x = 0; x < imgs[i].cols; ++x) {
-//                    cv::Vec3b color = imgs[i].at<cv::Vec3b>(y, x);
-//
-//                    cv::Point2d pt_dst = applyH(cv::Point2d(x, y), Hs[i]) - bbox.min();
-//                    int y_dst = std::max(0, std::min((int) std::round(pt_dst.y), result_height - 1));
-//                    int x_dst = std::max(0, std::min((int) std::round(pt_dst.x), result_width - 1));
-//
-//                    result.at<cv::Vec3b>(y_dst, x_dst) = color;
-//                }
-//            }
-//        }
-
-        std::vector<cv::Mat> Hs_inv;
-        std::transform(Hs.begin(), Hs.end(), std::back_inserter(Hs_inv), [&](const cv::Mat &H){ return H.inv(); });
-
-        #pragma omp parallel for
-        for (int y = 0; y < result_height; ++y) {
-            for (int x = 0; x < result_width; ++x) {
-
-                cv::Point2d pt_dst(x, y);
-
-                // test all images, pick first
-                for (int i = 0; i < n_images; ++i) {
-
-                    cv::Point2d pt_src = phg::transformPoint(pt_dst + bbox.min(), Hs_inv[i]);
-
-                    int x_src = std::round(pt_src.x);
-                    int y_src = std::round(pt_src.y);
-
-                    if (x_src >= 0 && x_src < imgs[i].cols && y_src >= 0 && y_src < imgs[i].rows) {
-                        result.at<cv::Vec3b>(y, x) = imgs[i].at<cv::Vec3b>(y_src, x_src);
-                        break;
-                    }
-                }
-
-            }
-        }
-
-        return result;
     }
 
     void evaluateStitching(const cv::Mat &img1, const cv::Mat &img2, double &keypoints_rmse, double &color_rmse,
@@ -713,8 +624,55 @@ TEST (STITCHING, SimplePanorama) {
     cv::Mat img1 = cv::imread("data/src/test_matching/hiking_left.JPG");
     cv::Mat img2 = cv::imread("data/src/test_matching/hiking_right.JPG");
 
-    cv::Mat pano = stitchPanorama({img1, img2}, {-1, 0});
+    std::function<cv::Mat(const cv::Mat&, const cv::Mat&)> homography_builder = [](const cv::Mat &lhs, const cv::Mat &rhs){ return getHomography(lhs, rhs); };
+    cv::Mat pano = phg::stitchPanorama({img1, img2}, {-1, 0}, homography_builder);
     cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "panorama.png", pano);
+}
+
+namespace {
+
+    int getOrthoScore(const cv::Mat &ortho0, const cv::Mat &ortho1, int threshold_px)
+    {
+        using namespace cv;
+
+        cv::Ptr<cv::FeatureDetector> detector = cv::SIFT::create();
+        std::vector<cv::KeyPoint> keypoints1, keypoints2;
+        cv::Mat descriptors1, descriptors2;
+        detector->detectAndCompute( ortho0, cv::noArray(), keypoints1, descriptors1 );
+        detector->detectAndCompute( ortho1, cv::noArray(), keypoints2, descriptors2 );
+
+        std::vector< std::vector<DMatch> > knn_matches;
+
+        phg::FlannMatcher matcher;
+        matcher.train(descriptors2);
+        matcher.knnMatch(descriptors1, knn_matches, 2);
+
+        std::vector<DMatch> good_matches(knn_matches.size());
+        for (int i = 0; i < (int) knn_matches.size(); ++i) {
+            good_matches[i] = knn_matches[i][0];
+        }
+
+        phg::DescriptorMatcher::filterMatchesRatioTest(knn_matches, good_matches);
+
+        {
+            std::vector<DMatch> tmp;
+            phg::DescriptorMatcher::filterMatchesClusters(good_matches, keypoints1, keypoints2, tmp);
+            std::swap(tmp, good_matches);
+        }
+
+        int score = 0;
+        for (const cv::DMatch &match : good_matches) {
+            cv::Point2f d = keypoints1[match.queryIdx].pt - keypoints2[match.trainIdx].pt;
+            if (d.x * d.x + d.y * d.y < threshold_px * threshold_px) {
+                ++score;
+            }
+        }
+
+        drawMatches(ortho0, ortho1, keypoints1, keypoints2, good_matches, "data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "ortho_matches.png");
+
+        return score;
+    }
+
 }
 
 TEST (STITCHING, Orthophoto) {
@@ -725,11 +683,26 @@ TEST (STITCHING, Orthophoto) {
     cv::Mat img4 = cv::imread("data/src/test_matching/ortho/IMG_160729_071356_0003_RGB.JPG");
     cv::Mat img5 = cv::imread("data/src/test_matching/ortho/IMG_160729_071358_0004_RGB.JPG");
 
-    // тест чтобы просто посмотреть на результат
+    {
+        std::function<cv::Mat(const cv::Mat&, const cv::Mat&)> homography_builder = [](const cv::Mat &lhs, const cv::Mat &rhs){ return getHomography(lhs, rhs); };
+        cv::Mat ortho2 = phg::stitchPanorama({img1, img2, img3, img4, img5}, {1, 2, -1, 2, 3}, homography_builder);
+        cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "ortho_root2.jpg", ortho2);
+    }
 
-    cv::Mat ortho = stitchPanorama({img1, img2, img3, img4, img5}, {-1, 0, 1, 2, 3});
+    int counter = 0;
+    std::function<cv::Mat(const cv::Mat&, const cv::Mat&)> homography_builder = [&counter](const cv::Mat &lhs, const cv::Mat &rhs){
+        ++counter;
+        return getHomography(lhs, rhs);
+    };
+
+    cv::Mat ortho = phg::stitchPanorama({img1, img2, img3, img4, img5}, {-1, 0, 1, 2, 3}, homography_builder);
     cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "ortho_root0.jpg", ortho);
 
-    cv::Mat ortho2 = stitchPanorama({img1, img2, img3, img4, img5}, {1, 2, -1, 2, 3});
-    cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "ortho_root2.jpg", ortho2);
+    // гомография должна быть посчитана для каждого ребра в графе по разу
+    EXPECT_EQ(counter, 4);
+
+    int threshold_px = 250;
+    int score = getOrthoScore(ortho, cv::imread("data/src/test_matching/ortho/ortho_root0.jpg"), threshold_px);
+    std::cout << "n stable ortho kpts: : " << score << std::endl;
+    EXPECT_GT(score, 7500);
 }

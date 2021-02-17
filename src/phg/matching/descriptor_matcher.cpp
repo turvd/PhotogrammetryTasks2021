@@ -7,8 +7,6 @@ void phg::DescriptorMatcher::filterMatchesRatioTest(const std::vector<std::vecto
                                                     std::vector<cv::DMatch> &filtered_matches)
 {
     filtered_matches.clear();
-    // TODO remove value
-    // TODO remove whole method?
     const double ratio_thresh = 0.7;
 
     for (size_t i = 0; i < matches.size(); i++) {

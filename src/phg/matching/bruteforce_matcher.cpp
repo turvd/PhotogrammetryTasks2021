@@ -17,8 +17,6 @@ void phg::BruteforceMatcher::knnMatch(const cv::Mat &query_desc,
                                       std::vector<std::vector<cv::DMatch>> &matches,
                                       int k) const
 {
-    // TOOO упомянуть что можно оптимизировать код, находя только два ближайших соседа в общем то
-
     if (!train_desc_ptr) {
         throw std::runtime_error("BruteforceMatcher:: knnMatch : matcher is not trained");
     }

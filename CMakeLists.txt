@@ -45,6 +45,8 @@ set(SOURCES
         src/phg/matching/flann_factory.h
         src/phg/sfm/homography.cpp
         src/phg/sfm/homography.h
+        src/phg/sfm/panorama_stitcher.h
+        src/phg/sfm/panorama_stitcher.cpp
         )
 
 set(LIBRARIES

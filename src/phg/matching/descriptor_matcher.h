@@ -18,22 +18,4 @@ namespace phg {
 
     };
 
-
-//    template <typename MATCHER> // template to enable support for OpenCV matchers
-//    std::vector<cv::DMatch> matchDescriptors(const MATCHER &matcher, const cv::Mat &desc0, const cv::Mat &desc1)
-//    {
-//        std::vector<std::vector<cv::DMatch>> matches;
-//        matcher.knnMatch(desc0, desc1, matches, 2);
-//
-//        std::vector<cv::DMatch> filtered_matches_ratio;
-//        DescriptorMatcher::filterMatchesRatioTest(matches, filtered_matches_ratio);
-//
-//        std::vector<cv::DMatch> filtered_matches_clusters;
-//        DescriptorMatcher::filterMatchesClusters(filtered_matches_ratio, filtered_matches_clusters);
-//
-//        // todo add left-right check ?
-//
-//        return filtered_matches_clusters;
-//    }
-
 }
