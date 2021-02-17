@@ -1,0 +1,735 @@
+#include <gtest/gtest.h>
+
+#include <opencv2/core.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/features2d/features2d.hpp>
+
+#include <phg/matching/bruteforce_matcher.h>
+#include <phg/sfm/homography.h>
+#include <phg/matching/flann_matcher.h>
+#include <phg/sift/sift.h>
+#include <libutils/timer.h>
+#include <libutils/bbox2.h>
+
+
+#include "utils/test_utils.h"
+
+const double max_keypoints_rmse_px = 1.0;
+const double max_color_rmse_8u = 20;
+
+#define GAUSSIAN_NOISE_STDDEV 1.0
+#define ENABLE_MY_DESCRIPTOR 0
+
+namespace {
+
+    void drawMatches(const cv::Mat &img1,
+                     const cv::Mat &img2,
+                     const std::vector<cv::KeyPoint> &keypoints1,
+                     const std::vector<cv::KeyPoint> &keypoints2,
+                     const std::vector<cv::DMatch> &matches,
+                     const std::string &path)
+    {
+        cv::Mat img_matches;
+        drawMatches( img1, keypoints1, img2, keypoints2, matches, img_matches, cv::Scalar::all(-1),
+                     cv::Scalar::all(-1), std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+
+        cv::imwrite(path, img_matches);
+    }
+
+    cv::Mat getHomography(const std::vector<cv::KeyPoint> &keypoints1, const std::vector<cv::KeyPoint> &keypoints2,
+                          const cv::Mat &descriptors1, const cv::Mat &descriptors2)
+    {
+        using namespace cv;
+
+        std::vector< std::vector<DMatch> > knn_matches;
+
+        phg::FlannMatcher matcher;
+        matcher.train(descriptors2);
+        matcher.knnMatch(descriptors1, knn_matches, 2);
+
+        std::vector<DMatch> good_matches(knn_matches.size());
+        for (int i = 0; i < (int) knn_matches.size(); ++i) {
+            good_matches[i] = knn_matches[i][0];
+        }
+
+        phg::DescriptorMatcher::filterMatchesRatioTest(knn_matches, good_matches);
+
+        {
+            std::vector<DMatch> tmp;
+            phg::DescriptorMatcher::filterMatchesClusters(good_matches, keypoints1, keypoints2, tmp);
+            std::swap(tmp, good_matches);
+        }
+
+        std::vector<cv::Point2f> points1, points2;
+        for (const cv::DMatch &match : good_matches) {
+            points1.push_back(keypoints1[match.queryIdx].pt);
+            points2.push_back(keypoints2[match.trainIdx].pt);
+        }
+
+        cv::Mat H = phg::findHomography(points1, points2);
+        return H;
+    }
+
+    cv::Mat getHomography(const cv::Mat &img1, const cv::Mat &img2)
+    {
+        using namespace cv;
+
+        cv::Ptr<cv::FeatureDetector> detector = cv::SIFT::create();
+        std::vector<KeyPoint> keypoints1, keypoints2;
+        Mat descriptors1, descriptors2;
+        detector->detectAndCompute( img1, noArray(), keypoints1, descriptors1 );
+        detector->detectAndCompute( img2, noArray(), keypoints2, descriptors2 );
+
+        return getHomography(keypoints1, keypoints2, descriptors1, descriptors2);
+    }
+
+    cv::Mat stitchPanorama(const std::vector<cv::Mat> &imgs, const std::vector<int> &parent)
+    {
+        const int n_images = imgs.size();
+
+        std::vector<char> dH_computed(n_images);
+        std::vector<cv::Mat> dHs(n_images);
+
+        std::vector<cv::Mat> Hs(n_images);
+        for (int i = 0; i < n_images; ++i) {
+            cv::Mat H = cv::Mat::eye(3, 3, CV_64FC1);
+
+            int p = i;
+            while (parent[p] != -1) {
+                if (dH_computed[p]) {
+                    cv::Mat dH = dHs[p];
+                    H = dH * H;
+                } else {
+                    cv::Mat dH = getHomography(imgs[p], imgs[parent[p]]);
+                    H = dH * H;
+                    dHs[p] = dH;
+                    dH_computed[p] = true;
+                }
+                p = parent[p];
+            }
+
+            Hs[i] = H;
+        }
+
+        bbox2<double, cv::Point2d> bbox;
+        for (int i = 0; i < n_images; ++i) {
+            double w = imgs[i].cols;
+            double h = imgs[i].rows;
+            bbox.grow(phg::transformPoint(cv::Point2d(0.0, 0.0), Hs[i]));
+            bbox.grow(phg::transformPoint(cv::Point2d(w, 0.0), Hs[i]));
+            bbox.grow(phg::transformPoint(cv::Point2d(w, h), Hs[i]));
+            bbox.grow(phg::transformPoint(cv::Point2d(0, h), Hs[i]));
+        }
+
+        std::cout << "bbox: " << bbox.max() << ", " << bbox.min() << std::endl;
+
+        int result_width = bbox.width() + 1;
+        int result_height = bbox.height() + 1;
+
+        cv::Mat result = cv::Mat::zeros(result_height, result_width, CV_8UC3);
+
+        // produces empty space between pixels
+//        for (int i = 0; i < n_images; ++i) {
+//            for (int y = 0; y < imgs[i].rows; ++y) {
+//                for (int x = 0; x < imgs[i].cols; ++x) {
+//                    cv::Vec3b color = imgs[i].at<cv::Vec3b>(y, x);
+//
+//                    cv::Point2d pt_dst = applyH(cv::Point2d(x, y), Hs[i]) - bbox.min();
+//                    int y_dst = std::max(0, std::min((int) std::round(pt_dst.y), result_height - 1));
+//                    int x_dst = std::max(0, std::min((int) std::round(pt_dst.x), result_width - 1));
+//
+//                    result.at<cv::Vec3b>(y_dst, x_dst) = color;
+//                }
+//            }
+//        }
+
+        std::vector<cv::Mat> Hs_inv;
+        std::transform(Hs.begin(), Hs.end(), std::back_inserter(Hs_inv), [&](const cv::Mat &H){ return H.inv(); });
+
+        #pragma omp parallel for
+        for (int y = 0; y < result_height; ++y) {
+            for (int x = 0; x < result_width; ++x) {
+
+                cv::Point2d pt_dst(x, y);
+
+                // test all images, pick first
+                for (int i = 0; i < n_images; ++i) {
+
+                    cv::Point2d pt_src = phg::transformPoint(pt_dst + bbox.min(), Hs_inv[i]);
+
+                    int x_src = std::round(pt_src.x);
+                    int y_src = std::round(pt_src.y);
+
+                    if (x_src >= 0 && x_src < imgs[i].cols && y_src >= 0 && y_src < imgs[i].rows) {
+                        result.at<cv::Vec3b>(y, x) = imgs[i].at<cv::Vec3b>(y_src, x_src);
+                        break;
+                    }
+                }
+
+            }
+        }
+
+        return result;
+    }
+
+    void evaluateStitching(const cv::Mat &img1, const cv::Mat &img2, double &keypoints_rmse, double &color_rmse,
+                           const std::vector<cv::KeyPoint> &keypoints1, const std::vector<cv::KeyPoint> &keypoints2,
+                           const cv::Mat &descriptors1, const cv::Mat &descriptors2)
+    {
+        using namespace cv;
+
+        std::vector<std::vector<DMatch>> knn_matches;
+
+        phg::FlannMatcher matcher;
+        matcher.train(descriptors2);
+        matcher.knnMatch(descriptors1, knn_matches, 2);
+
+        std::vector<DMatch> good_matches(knn_matches.size());
+        for (int i = 0; i < (int) knn_matches.size(); ++i) {
+            good_matches[i] = knn_matches[i][0];
+        }
+
+        phg::DescriptorMatcher::filterMatchesRatioTest(knn_matches, good_matches);
+        {
+            std::vector<DMatch> tmp;
+            phg::DescriptorMatcher::filterMatchesClusters(good_matches, keypoints1, keypoints2, tmp);
+            std::swap(tmp, good_matches);
+        }
+
+        std::vector<cv::Point2f> points1, points2;
+        for (const cv::DMatch &match : good_matches) {
+            points1.push_back(keypoints1[match.queryIdx].pt);
+            points2.push_back(keypoints2[match.trainIdx].pt);
+        }
+
+        cv::Mat H = phg::findHomography(points1, points2);
+
+        if (good_matches.size() < 4) {
+            throw std::runtime_error("too few matches");
+        }
+
+        keypoints_rmse = 0;
+        for (int i = 0; i < (int) good_matches.size(); ++i) {
+            cv::Point2f pt = phg::transformPoint(points1[i], H);
+            cv::Point2f diff = pt - points2[i];
+            keypoints_rmse += diff.x * diff.x + diff.y * diff.y;
+        }
+        keypoints_rmse /= good_matches.size();
+        keypoints_rmse = std::sqrt(keypoints_rmse);
+
+        color_rmse = 0;
+        int64_t count = 0;
+        for (int y = 0; y < img1.rows; ++y) {
+            for (int x = 0; x < img1.cols; ++x) {
+                cv::Vec3b col1 = img1.at<cv::Vec3b>(y, x);
+                cv::Point2f pt = phg::transformPoint(cv::Point2f(x, y), H);
+                int pt_x = std::round(pt.x);
+                int pt_y = std::round(pt.y);
+                if (pt_x >= 0 && pt_x < img2.cols && pt_y >= 0 && pt_y < img2.rows) {
+                    cv::Vec3b col2 = img2.at<cv::Vec3b>(pt_y, pt_x);
+                    int dc0 = int(col2[0]) - int(col1[0]);
+                    int dc1 = int(col2[1]) - int(col1[1]);
+                    int dc2 = int(col2[2]) - int(col1[2]);
+
+                    color_rmse += dc0 * dc0 + dc1 * dc1 + dc2 * dc2;
+                    ++count;
+                }
+            }
+        }
+
+        if (count) {
+            color_rmse /= count;
+            color_rmse = std::sqrt(color_rmse);
+        }
+    }
+
+}
+
+namespace {
+    void testStitching(const cv::Mat &img1, const cv::Mat &img2, const std::vector<cv::KeyPoint> &keypoints1, const std::vector<cv::KeyPoint> &keypoints2,
+                       const cv::Mat &descriptors1, const cv::Mat &descriptors2)
+    {
+        double rmse_kpts, rmse_color;
+        evaluateStitching(img1, img2, rmse_kpts, rmse_color, keypoints1, keypoints2, descriptors1, descriptors2);
+
+        std::cout << "keypoints RMSE: " << rmse_kpts << ", color RMSE: " << rmse_color << std::endl;
+
+        EXPECT_LT(rmse_kpts, max_keypoints_rmse_px);
+        EXPECT_LT(rmse_color, max_color_rmse_8u);
+    }
+
+    void testStitchingMultipleDetectors(const cv::Mat &img1, const cv::Mat &img2)
+    {
+        {
+            std::cout << "testing sift detector/descriptor..." << std::endl;
+            cv::Ptr<cv::FeatureDetector> detector = cv::SIFT::create();
+            std::vector<cv::KeyPoint> keypoints1, keypoints2;
+            cv::Mat descriptors1, descriptors2;
+            detector->detectAndCompute( img1, cv::noArray(), keypoints1, descriptors1 );
+            detector->detectAndCompute( img2, cv::noArray(), keypoints2, descriptors2 );
+
+            testStitching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2);
+        }
+
+#if ENABLE_MY_DESCRIPTOR
+        {
+            std::cout << "testing my detector/descriptor..." << std::endl;
+            std::vector<cv::KeyPoint> keypoints1, keypoints2;
+            cv::Mat descriptors1, descriptors2;
+            phg::SIFT mySIFT;
+            mySIFT.detectAndCompute(img1, keypoints1, descriptors1);
+            mySIFT.detectAndCompute(img1, keypoints2, descriptors2);
+
+            testStitching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2);
+        }
+#endif
+    }
+}
+
+TEST (MATCHING, SimpleStitching) {
+
+    cv::Mat img1 = cv::imread("data/src/test_matching/hiking_left.JPG");
+    cv::Mat img2 = cv::imread("data/src/test_matching/hiking_right.JPG");
+
+    testStitchingMultipleDetectors(img1, img2);
+}
+
+namespace {
+
+    void evaluateMatching(const cv::Mat &img1, const cv::Mat &img2, const std::vector<cv::KeyPoint> &keypoints1, const std::vector<cv::KeyPoint> &keypoints2,
+                          const cv::Mat &descriptors1, const cv::Mat &descriptors2,
+                          double &nn_score, double &nn2_score, double &nn_score_cv, double &nn2_score_cv,
+                          double &time_my, double &time_cv, double &time_bruteforce,
+                          double &good_nn, double &good_ratio, double &good_clusters, double &good_ratio_and_clusters, bool do_bruteforce)
+    {
+        using namespace cv;
+
+        if (!descriptors1.rows || !descriptors2.rows) {
+            throw std::runtime_error("empty descriptors");
+        }
+
+        timer tm;
+
+        std::vector<std::vector<DMatch>> knn_matches_flann, knn_matches_flann_cv, knn_matches_bruteforce;
+
+        std::cout << "flann matching..." << std::endl;
+        tm.restart();
+        {
+            phg::FlannMatcher matcher;
+            matcher.train(descriptors2);
+            matcher.knnMatch(descriptors1, knn_matches_flann, 2);
+        }
+        time_my = tm.elapsed();
+
+        std::cout << "cv flann matching..." << std::endl;
+        tm.restart();
+        {
+            Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+            matcher->knnMatch( descriptors1, descriptors2, knn_matches_flann_cv, 2 );
+        }
+        time_cv = tm.elapsed();
+
+        tm.restart();
+        if (do_bruteforce) {
+            std::cout << "brute force matching" << std::endl;
+            phg::BruteforceMatcher matcher;
+            matcher.train(descriptors2);
+            matcher.knnMatch(descriptors1, knn_matches_bruteforce, 2);
+        }
+        time_bruteforce = tm.elapsed();
+
+        nn_score = 0;
+        nn2_score = 0;
+        nn_score_cv = 0;
+        nn2_score_cv = 0;
+        if (do_bruteforce) {
+            for (int i = 0; i < descriptors1.rows; ++i) {
+                if (knn_matches_bruteforce[i][0].queryIdx != i) {
+                    throw std::runtime_error("invalid DMatch queryIdx for knn_matches_bruteforce");
+                }
+                if (knn_matches_flann[i][0].queryIdx != i) {
+                    throw std::runtime_error("invalid DMatch queryIdx for knn_matches_flann");
+                }
+                if (knn_matches_flann_cv[i][0].queryIdx != i) {
+                    throw std::runtime_error("invalid DMatch queryIdx for knn_matches_flann_cv");
+                }
+
+                if (knn_matches_flann[i][0].trainIdx == knn_matches_bruteforce[i][0].trainIdx) {
+                    ++nn_score;
+                }
+
+                if (knn_matches_flann[i][1].trainIdx == knn_matches_bruteforce[i][1].trainIdx) {
+                    ++nn2_score;
+                }
+
+                if (knn_matches_flann_cv[i][0].trainIdx == knn_matches_bruteforce[i][0].trainIdx) {
+                    ++nn_score_cv;
+                }
+
+                if (knn_matches_flann_cv[i][1].trainIdx == knn_matches_bruteforce[i][1].trainIdx) {
+                    ++nn2_score_cv;
+                }
+            }
+
+            nn_score /= descriptors1.rows;
+            nn2_score /= descriptors1.rows;
+            nn_score_cv /= descriptors1.rows;
+            nn2_score_cv /= descriptors1.rows;
+        }
+
+        std::vector<DMatch> good_matches_nn(knn_matches_flann.size());
+        for (int i = 0; i < (int) knn_matches_flann.size(); ++i) {
+            good_matches_nn[i] = knn_matches_flann[i][0];
+        }
+        drawMatches(img1, img2, keypoints1, keypoints2, good_matches_nn, "data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "00_matches_nn.png");
+
+        std::cout << "filtering matches by ratio test..." << std::endl;
+        std::vector<DMatch> good_matches_ratio;
+        phg::DescriptorMatcher::filterMatchesRatioTest(knn_matches_flann, good_matches_ratio);
+        drawMatches(img1, img2, keypoints1, keypoints2, good_matches_ratio, "data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "01_matches_ratio.png");
+
+        std::cout << "filtering matches by clusters..." << std::endl;
+        std::vector<DMatch> good_matches_clusters_only;
+        phg::DescriptorMatcher::filterMatchesClusters(good_matches_nn, keypoints1, keypoints2, good_matches_clusters_only);
+        drawMatches(img1, img2, keypoints1, keypoints2, good_matches_clusters_only, "data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "03_matches_clusters_only.png");
+
+        std::cout << "filtering matches by ratio & clusters" << std::endl;
+        std::vector<DMatch> good_matches_clusters_and_ratio;
+        phg::DescriptorMatcher::filterMatchesClusters(good_matches_ratio, keypoints1, keypoints2, good_matches_clusters_and_ratio);
+        drawMatches(img1, img2, keypoints1, keypoints2, good_matches_clusters_and_ratio, "data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "04_matches_clusters_and_ratio.png");
+
+        std::cout << "estimating homography..." << std::endl;
+        cv::Mat H;
+        {
+            std::vector<cv::Point2f> points1, points2;
+            for (const cv::DMatch &match : good_matches_clusters_and_ratio) {
+                points1.push_back(keypoints1[match.queryIdx].pt);
+                points2.push_back(keypoints2[match.trainIdx].pt);
+            }
+
+            H = phg::findHomography(points1, points2);
+        }
+
+
+        std::cout << "evaluating homography..." << std::endl;
+        std::vector<cv::DMatch>* arrs[4] = {&good_matches_nn, &good_matches_ratio, &good_matches_clusters_only, &good_matches_clusters_and_ratio};
+        double* ptrs[4] = {&good_nn, &good_ratio, &good_clusters, &good_ratio_and_clusters};
+
+        for (int i_test = 0; i_test < 4; ++i_test) {
+
+            const std::vector<cv::DMatch> &arr = *arrs[i_test];
+
+            if (arr.size() < 50) {
+                std::cerr << "too few matches: " + std::to_string(arr.size()) << std::endl;
+                continue;
+            }
+
+            std::vector<cv::Point2f> points1, points2;
+            for (const cv::DMatch &match : arr) {
+                points1.push_back(keypoints1[match.queryIdx].pt);
+                points2.push_back(keypoints2[match.trainIdx].pt);
+            }
+
+            (*ptrs[i_test]) = 0;
+            for (int i = 0; i < (int) arr.size(); ++i) {
+                cv::Point2f pt = phg::transformPoint(points1[i], H);
+                cv::Point2f diff = pt - points2[i];
+                float dist2 = diff.x * diff.x + diff.y * diff.y;
+                if (dist2 < max_keypoints_rmse_px * max_keypoints_rmse_px) {
+                    ++(*ptrs[i_test]);
+                }
+            }
+            if (arr.size()) {
+                (*ptrs[i_test]) /= arr.size();
+            }
+        }
+
+    }
+
+    void testMatching(const cv::Mat &img1, const cv::Mat &img2, const std::vector<cv::KeyPoint> &keypoints1, const std::vector<cv::KeyPoint> &keypoints2,
+                       const cv::Mat &descriptors1, const cv::Mat &descriptors2,
+                      double &nn_score, double &nn2_score, double &nn_score_cv, double &nn2_score_cv,
+                      double &time_my, double &time_cv, double &time_bruteforce,
+                      double &good_nn, double &good_ratio, double &good_clusters, double &good_ratio_and_clusters,
+                      bool do_bruteforce
+                       )
+    {
+        evaluateMatching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2,
+                         nn_score, nn2_score, nn_score_cv, nn2_score_cv,
+                         time_my, time_cv, time_bruteforce,
+                         good_nn, good_ratio, good_clusters, good_ratio_and_clusters, do_bruteforce);
+
+        std::cout << "nn_score: " << nn_score << ", ";
+        std::cout << "nn2_score: " << nn2_score << ", ";
+        std::cout << "nn_score_cv: " << nn_score_cv << ", ";
+        std::cout << "nn2_score_cv: " << nn2_score_cv << ", ";
+        std::cout << "time_my: " << time_my << ", ";
+        std::cout << "time_cv: " << time_cv << ", ";
+        std::cout << "time_bruteforce: " << time_bruteforce << ", ";
+        std::cout << "good_nn: " << good_nn << ", ";
+        std::cout << "good_ratio: " << good_ratio << ", ";
+        std::cout << "good_clusters: " << good_clusters << ", ";
+        std::cout << "good_ratio_and_clusters: " << good_ratio_and_clusters << std::endl;
+    }
+
+    void testMatchingMultipleDetectors(const cv::Mat &img1, const cv::Mat &img2,
+                                        double &nn_score, double &nn2_score, double &nn_score_cv, double &nn2_score_cv,
+                                        double &time_my, double &time_cv, double &time_bruteforce,
+                                        double &good_nn, double &good_ratio, double &good_clusters, double &good_ratio_and_clusters, bool do_bruteforce = true)
+    {
+        {
+            std::cout << "testing sift detector/descriptor..." << std::endl;
+            cv::Ptr<cv::FeatureDetector> detector = cv::SIFT::create();
+            std::vector<cv::KeyPoint> keypoints1, keypoints2;
+            cv::Mat descriptors1, descriptors2;
+            detector->detectAndCompute( img1, cv::noArray(), keypoints1, descriptors1 );
+            detector->detectAndCompute( img2, cv::noArray(), keypoints2, descriptors2 );
+
+            testMatching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2,
+                         nn_score, nn2_score, nn_score_cv, nn2_score_cv,
+                         time_my, time_cv, time_bruteforce,
+                         good_nn, good_ratio, good_clusters, good_ratio_and_clusters, do_bruteforce);
+        }
+#if ENABLE_MY_DESCRIPTOR
+        {
+            std::cout << "testing my detector/descriptor..." << std::endl;
+            std::vector<cv::KeyPoint> keypoints1, keypoints2;
+            cv::Mat descriptors1, descriptors2;
+            phg::SIFT mySIFT;
+            mySIFT.detectAndCompute(img1, keypoints1, descriptors1);
+            mySIFT.detectAndCompute(img1, keypoints2, descriptors2);
+
+            testMatching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2,
+                         nn_score, nn2_score, nn_score_cv, nn2_score_cv,
+                         time_my, time_cv, time_bruteforce,
+                         good_nn, good_ratio, good_clusters, good_ratio_and_clusters, do_bruteforce);
+        }
+#endif
+    }
+
+}
+
+TEST (MATCHING, SimpleMatching) {
+
+    cv::Mat img1 = cv::imread("data/src/test_matching/hiking_left.JPG");
+    cv::Mat img2 = cv::imread("data/src/test_matching/hiking_right.JPG");
+
+
+    double nn_score, nn2_score, nn_score_cv, nn2_score_cv,
+            time_my, time_cv, time_bruteforce, good_nn, good_ratio, good_clusters, good_ratio_and_clusters;
+
+    testMatchingMultipleDetectors(img1, img2,
+                                  nn_score, nn2_score, nn_score_cv, nn2_score_cv,
+                                  time_my, time_cv, time_bruteforce,
+                                  good_nn, good_ratio, good_clusters, good_ratio_and_clusters);
+
+
+
+    EXPECT_GT(nn_score, 0.9 * nn_score_cv);
+    EXPECT_GT(nn2_score, 0.9 * nn2_score_cv);
+
+    EXPECT_LT(time_my, 1.5 * time_cv);
+    EXPECT_LT(time_my, 0.1 * time_bruteforce);
+
+    EXPECT_LT(good_nn, good_ratio);
+    EXPECT_LT(good_nn, good_clusters);
+    EXPECT_LT(good_nn, good_ratio_and_clusters);
+
+    EXPECT_GT(good_nn, 0.2);
+    EXPECT_GT(good_ratio, 0.9);
+    EXPECT_GT(good_clusters, 0.9);
+    EXPECT_GT(good_ratio_and_clusters, 0.9);
+}
+
+namespace {
+
+    cv::Mat transformImg(const cv::Mat &img2, double angleDegreesClockwise, double scale)
+    {
+        cv::Mat M = cv::getRotationMatrix2D(cv::Point(0, 0), 0, scale);
+        M.at<double>(0, 2) = img2.cols * 0.25 * scale;
+        M.at<double>(1, 2) = img2.rows * 0.25 * scale;
+        cv::Mat tmp;
+        cv::warpAffine(img2, tmp, M, cv::Size(1.5 * img2.cols * scale, 1.5 * img2.rows * scale));
+
+        cv::Mat transformedImage;
+        M = cv::getRotationMatrix2D(cv::Point(tmp.cols / 2, tmp.rows / 2), -angleDegreesClockwise, 1.0);
+        cv::warpAffine(tmp, transformedImage, M, cv::Size(tmp.cols, tmp.rows));
+
+        return transformedImage;
+    }
+
+    cv::Mat addNoise(cv::Mat &img2)
+    {
+        cv::Mat noise(cv::Size(img2.cols, img2.rows), CV_8UC3);
+        cv::setRNGSeed(125125); // фиксируем рандом для детерминизма (чтобы результат воспроизводился из раза в раз)
+        cv::randn(noise, cv::Scalar::all(0), cv::Scalar::all(GAUSSIAN_NOISE_STDDEV));
+        cv::add(img2, noise, img2); // добавляем к преобразованной картинке гауссиан шума
+    }
+
+    void testMatchingTransformWrapper(double angleDegreesClockwise, double scale)
+    {
+        cv::Mat img1 = cv::imread("data/src/test_matching/hiking_left.JPG");
+        cv::Mat img2 = cv::imread("data/src/test_matching/hiking_right.JPG");
+
+        img2 = transformImg(img2, angleDegreesClockwise, scale);
+        addNoise(img2);
+
+        cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "hiking_right_rotated_noise.png", img2);
+
+        double nn_score, nn2_score, nn_score_cv, nn2_score_cv,
+                time_my, time_cv, time_bruteforce, good_nn, good_ratio, good_clusters, good_ratio_and_clusters;
+
+        testMatchingMultipleDetectors(img1, img2,
+                                      nn_score, nn2_score, nn_score_cv, nn2_score_cv,
+                                      time_my, time_cv, time_bruteforce,
+                                      good_nn, good_ratio, good_clusters, good_ratio_and_clusters, false);
+
+        EXPECT_LT(time_my, 1.5 * time_cv);
+
+        EXPECT_LT(good_nn, good_ratio);
+        EXPECT_LT(good_nn, good_ratio_and_clusters);
+
+        EXPECT_GT(good_ratio, 0.7);
+        EXPECT_GT(good_ratio_and_clusters, 0.7);
+    }
+
+}
+
+TEST (MATCHING, Rotate10) {
+    double angleDegreesClockwise = 10;
+    double scale = 1.0;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Rotate20) {
+    double angleDegreesClockwise = 20;
+    double scale = 1.0;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Rotate30) {
+    double angleDegreesClockwise = 30;
+    double scale = 1.0;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Rotate40) {
+    double angleDegreesClockwise = 40;
+    double scale = 1.0;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Rotate45) {
+    double angleDegreesClockwise = 45;
+    double scale = 1.0;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Rotate90) {
+    double angleDegreesClockwise = 90;
+    double scale = 1.0;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale50) {
+    double angleDegreesClockwise = 0;
+    double scale = 0.5;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale70) {
+    double angleDegreesClockwise = 0;
+    double scale = 0.7;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale90) {
+    double angleDegreesClockwise = 0;
+    double scale = 0.9;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale110) {
+    double angleDegreesClockwise = 0;
+    double scale = 1.1;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale130) {
+    double angleDegreesClockwise = 0;
+    double scale = 1.3;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale150) {
+    double angleDegreesClockwise = 0;
+    double scale = 1.5;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale175) {
+    double angleDegreesClockwise = 0;
+    double scale = 1.75;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Scale200) {
+    double angleDegreesClockwise = 0;
+    double scale = 2.0;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Rotate10Scale90) {
+    double angleDegreesClockwise = 10;
+    double scale = 0.9;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (MATCHING, Rotate30Scale75) {
+    double angleDegreesClockwise = 30;
+    double scale = 0.75;
+
+    testMatchingTransformWrapper(angleDegreesClockwise, scale);
+}
+
+TEST (STITCHING, SimplePanorama) {
+
+    cv::Mat img1 = cv::imread("data/src/test_matching/hiking_left.JPG");
+    cv::Mat img2 = cv::imread("data/src/test_matching/hiking_right.JPG");
+
+    cv::Mat pano = stitchPanorama({img1, img2}, {-1, 0});
+    cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "panorama.png", pano);
+}
+
+TEST (STITCHING, Orthophoto) {
+
+    cv::Mat img1 = cv::imread("data/src/test_matching/ortho/IMG_160729_071349_0000_RGB.JPG");
+    cv::Mat img2 = cv::imread("data/src/test_matching/ortho/IMG_160729_071351_0001_RGB.JPG");
+    cv::Mat img3 = cv::imread("data/src/test_matching/ortho/IMG_160729_071353_0002_RGB.JPG");
+    cv::Mat img4 = cv::imread("data/src/test_matching/ortho/IMG_160729_071356_0003_RGB.JPG");
+    cv::Mat img5 = cv::imread("data/src/test_matching/ortho/IMG_160729_071358_0004_RGB.JPG");
+
+    // тест чтобы просто посмотреть на результат
+
+    cv::Mat ortho = stitchPanorama({img1, img2, img3, img4, img5}, {-1, 0, 1, 2, 3});
+    cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "ortho_root0.jpg", ortho);
+
+    cv::Mat ortho2 = stitchPanorama({img1, img2, img3, img4, img5}, {1, 2, -1, 2, 3});
+    cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "ortho_root2.jpg", ortho2);
+}

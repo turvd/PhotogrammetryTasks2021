@@ -23,7 +23,7 @@ find_package(OpenCV 4.5.1 REQUIRED)
 # cd opencv-4.5.1
 # mkdir build
 # cd build
-# cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_LIST=features2d,highgui,flann -DWITH_OPENEXR=ON -DBUILD_EXAMPLES=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/opt/opencv451  ..
+# cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_LIST=features2d,highgui,flann,calib3d -DWITH_OPENEXR=ON -DBUILD_EXAMPLES=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/opt/opencv451  ..
 # make -j12
 # sudo make install
 # укажите для CMake путь к OpenCV:
@@ -36,6 +36,15 @@ find_package(OpenCV 4.5.1 REQUIRED)
 set(SOURCES
         src/phg/sift/sift.cpp
         src/phg/sift/sift.h
+        src/phg/matching/descriptor_matcher.cpp
+        src/phg/matching/descriptor_matcher.h
+        src/phg/matching/bruteforce_matcher.cpp
+        src/phg/matching/bruteforce_matcher.h
+        src/phg/matching/flann_matcher.cpp
+        src/phg/matching/flann_matcher.h
+        src/phg/matching/flann_factory.h
+        src/phg/sfm/homography.cpp
+        src/phg/sfm/homography.h
         )
 
 set(LIBRARIES
@@ -58,4 +67,7 @@ set(TEST_LIBRARIES
         )
 
 add_executable(test_sift tests/test_sift.cpp ${TEST_SOURCES})
+add_executable(test_matching tests/test_matching.cpp ${TEST_SOURCES})
+
 target_link_libraries(test_sift ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
+target_link_libraries(test_matching ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
