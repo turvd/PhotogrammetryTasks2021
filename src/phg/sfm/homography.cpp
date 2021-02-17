@@ -56,6 +56,7 @@ namespace {
         return 1;
     }
 
+    // см. Hartley, Zisserman: Multiple View Geometry in Computer Vision. Second Edition 4.1, 4.1.2
     cv::Mat estimateHomography4Points(const cv::Point2f &l0, const cv::Point2f &l1,
                                       const cv::Point2f &l2, const cv::Point2f &l3,
                                       const cv::Point2f &r0, const cv::Point2f &r1,
