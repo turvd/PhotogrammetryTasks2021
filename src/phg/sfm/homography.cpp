@@ -1,6 +1,6 @@
 #include "homography.h"
 
-#include <opencv2/calib3d/calib3d.hpp>
+//#include <opencv2/calib3d/calib3d.hpp>
 #include <iostream>
 
 namespace {
@@ -212,10 +212,12 @@ namespace {
         return best_H;
     }
 
-    cv::Mat cv_estimateHomographyRANSAC(const std::vector<cv::Point2f> &points_lhs, const std::vector<cv::Point2f> &points_rhs)
-    {
-        return cv::findHomography(points_lhs, points_rhs, cv::RANSAC);
-    }
+    // можно использовавть для тестирования метод оценки гомографии, встроенный в opencv
+    // чтобы заработало, нужно пересобрать библиотеку с дополнительным модулем calib3d (см. инструкцию в корневом CMakeLists.txt)
+//    cv::Mat cv_estimateHomographyRANSAC(const std::vector<cv::Point2f> &points_lhs, const std::vector<cv::Point2f> &points_rhs)
+//    {
+//        return cv::findHomography(points_lhs, points_rhs, cv::RANSAC);
+//    }
 
 }
 
