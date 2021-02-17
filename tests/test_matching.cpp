@@ -19,7 +19,7 @@ const double max_keypoints_rmse_px = 1.0;
 const double max_color_rmse_8u = 20;
 
 #define GAUSSIAN_NOISE_STDDEV 1.0
-#define ENABLE_MY_DESCRIPTOR 0
+#define ENABLE_MY_DESCRIPTOR 1
 
 namespace {
 
