@@ -4,6 +4,7 @@
 
 namespace phg {
 
+    // source: https://github.com/JiawangBian/GMS-Feature-Matcher
     void filterMatchesGMS(const std::vector<cv::DMatch> &matches,
                                       const std::vector<cv::KeyPoint> keypoints_query,
                                       const std::vector<cv::KeyPoint> keypoints_train,

@@ -2,6 +2,7 @@
 
 #include "gms_matcher_impl.h"
 
+// source: https://github.com/JiawangBian/GMS-Feature-Matcher
 void phg::filterMatchesGMS(const std::vector <cv::DMatch> &matches_all,
                            const std::vector <cv::KeyPoint> kp1,
                            const std::vector <cv::KeyPoint> kp2,
