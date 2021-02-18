@@ -40,6 +40,8 @@ set(SOURCES
         src/phg/matching/descriptor_matcher.h
         src/phg/matching/bruteforce_matcher.cpp
         src/phg/matching/bruteforce_matcher.h
+        src/phg/matching/bruteforce_matcher_gpu.cpp
+        src/phg/matching/bruteforce_matcher_gpu.h
         src/phg/matching/gms_matcher.cpp
         src/phg/matching/gms_matcher.h
         src/phg/matching/gms_matcher_impl.h
@@ -51,6 +53,12 @@ set(SOURCES
         src/phg/sfm/panorama_stitcher.h
         src/phg/sfm/panorama_stitcher.cpp
         )
+
+# convertIntoHeader CMake-функция объявлена в libs/gpu/CMakeLists.txt:71
+# Она считывает все байты из файла bruteforce_matcher.cl (т.е. весь исходный код кернела) и преобразует их в массив байтов в файле bruteforce_matcher_cl.h bruteforce_matcher_kernel
+convertIntoHeader(src/phg/matching/cl/bruteforce_matcher.cl src/phg/matching/cl/bruteforce_matcher_cl.h bruteforce_matcher_kernel)
+# Обратите внимание что это происходит на этапе компиляции, кроме того необходимо чтобы файл bruteforce_matcher_cl.h был перечислен среди исходников для компиляции при вызове add_executable
+set(SOURCES ${SOURCES} src/phg/matching/cl/bruteforce_matcher_cl.h)
 
 set(LIBRARIES
         libutils
