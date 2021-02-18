@@ -2,7 +2,7 @@
 
 [Остальные задания](https://github.com/PhotogrammetryCourse/PhotogrammetryTasks2021/).
 
-# Задание 1. Локальные ключевые точки SIFT (детектор и дескриптор)
+# Задание 2. Сопоставление ключевых точек и подсчет гомографии
 
 [![Build Status](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021.svg?branch=task01)](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021)
 
