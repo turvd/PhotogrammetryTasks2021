@@ -6,10 +6,10 @@
 
 [![Build Status](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021.svg?branch=task01)](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021)
 
-0. Скачать себе ветку task-02 и смерджить в нее свою реализацию SIFT
-1. [Пересобрать OpenCV 4.5.1](https://github.com/PhotogrammetryCourse/PhotogrammetryTasks2021/blob/task01/CMakeLists.txt#L19-L31) (добавился новый модуль calib3d)
+0. Скачать себе ветку task02 и смерджить в нее свою реализацию SIFT
+1. [Пересобрать OpenCV 4.5.1](https://github.com/PhotogrammetryCourse/PhotogrammetryTasks2021/blob/task02/CMakeLists.txt#L19-L31) (добавился новый модуль calib3d)
 2. Выполнить задания ниже (не используйте пожалуйста C++ из будущего о котором не знает GCC 5.5 - именно он будет использоваться при тестировании в Travis CI, ориентируйтесь на C++11)
-3. Отправить **Pull-request** с названием```Task01 <Имя> <Фамилия> <Аффиляция>```:
+3. Отправить **Pull-request** с названием```Task02 <Имя> <Фамилия> <Аффиляция>```:
 
  - Скопируйте в описание [шаблон](https://raw.githubusercontent.com/PhotogrammetryCourse/PhotogrammetryTasks2021/task01/.github/pull_request_template.md)
  - Обязательно отправляйте PR из вашей ветки **task02** (вашего форка) в ветку **task02** (основного репозитория)
