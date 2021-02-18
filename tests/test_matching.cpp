@@ -6,6 +6,7 @@
 #include <opencv2/features2d/features2d.hpp>
 
 #include <phg/matching/bruteforce_matcher.h>
+#include <phg/matching/bruteforce_matcher_gpu.h>
 #include <phg/sfm/homography.h>
 #include <phg/matching/flann_matcher.h>
 #include <phg/sift/sift.h>
@@ -253,10 +254,15 @@ TEST (MATCHING, SimpleStitching) {
 
 namespace {
 
+    bool matcheq(const cv::DMatch &lhs, const cv::DMatch &rhs)
+    {
+        return std::tie(lhs.trainIdx, lhs.queryIdx, lhs.imgIdx) == std::tie(rhs.trainIdx, rhs.queryIdx, rhs.imgIdx);
+    }
+
     void evaluateMatching(const cv::Mat &img1, const cv::Mat &img2, const std::vector<cv::KeyPoint> &keypoints1, const std::vector<cv::KeyPoint> &keypoints2,
                           const cv::Mat &descriptors1, const cv::Mat &descriptors2,
                           double &nn_score, double &nn2_score, double &nn_score_cv, double &nn2_score_cv,
-                          double &time_my, double &time_cv, double &time_bruteforce,
+                          double &time_my, double &time_cv, double &time_bruteforce, double &time_bruteforce_gpu,
                           double &good_nn, double &good_ratio, double &good_clusters, double &good_ratio_and_clusters, bool do_bruteforce)
     {
         using namespace cv;
@@ -300,6 +306,28 @@ namespace {
             matcher.knnMatch(descriptors1, knn_matches_bruteforce, 2);
         }
         time_bruteforce = tm.elapsed();
+
+        tm.restart();
+        std::vector<std::vector<DMatch>> knn_matches_bruteforce_gpu;
+#if ENABLE_GPU_BRUTEFORCE_MATCHER
+        if (do_bruteforce) {
+            std::cout << "brute force GPU matching" << std::endl;
+            phg::BruteforceMatcherGPU matcher;
+            matcher.train(descriptors2);
+            matcher.knnMatch(descriptors1, knn_matches_bruteforce_gpu, 2);
+        }
+#endif
+        time_bruteforce_gpu = tm.elapsed();
+
+#if ENABLE_GPU_BRUTEFORCE_MATCHER
+        ASSERT_EQ(knn_matches_bruteforce_gpu.size(), knn_matches_bruteforce.size());
+        for (int i = 0; i < (int) knn_matches_bruteforce_gpu.size(); ++i) {
+            ASSERT_EQ(knn_matches_bruteforce_gpu[i].size(), knn_matches_bruteforce[i].size());
+            for (int j = 0; j < (int) knn_matches_bruteforce_gpu[i].size(); ++j) {
+                ASSERT_TRUE(matcheq(knn_matches_bruteforce_gpu[i][j], knn_matches_bruteforce[i][j]));
+            }
+        }
+#endif
 
         nn_score = 0;
         nn2_score = 0;
@@ -439,14 +467,14 @@ namespace {
     void testMatching(const cv::Mat &img1, const cv::Mat &img2, const std::vector<cv::KeyPoint> &keypoints1, const std::vector<cv::KeyPoint> &keypoints2,
                        const cv::Mat &descriptors1, const cv::Mat &descriptors2,
                       double &nn_score, double &nn2_score, double &nn_score_cv, double &nn2_score_cv,
-                      double &time_my, double &time_cv, double &time_bruteforce,
+                      double &time_my, double &time_cv, double &time_bruteforce, double &time_bruteforce_gpu,
                       double &good_nn, double &good_ratio, double &good_clusters, double &good_ratio_and_clusters,
                       bool do_bruteforce
                        )
     {
         evaluateMatching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2,
                          nn_score, nn2_score, nn_score_cv, nn2_score_cv,
-                         time_my, time_cv, time_bruteforce,
+                         time_my, time_cv, time_bruteforce, time_bruteforce_gpu,
                          good_nn, good_ratio, good_clusters, good_ratio_and_clusters, do_bruteforce);
 
         std::cout << "nn_score: " << nn_score << ", ";
@@ -456,6 +484,9 @@ namespace {
         std::cout << "time_my: " << time_my << ", ";
         std::cout << "time_cv: " << time_cv << ", ";
         std::cout << "time_bruteforce: " << time_bruteforce << ", ";
+#if ENABLE_GPU_BRUTEFORCE_MATCHER
+        std::cout << "time_bruteforce_gpu: " << time_bruteforce_gpu << ", ";
+#endif
         std::cout << "good_nn: " << good_nn << ", ";
         std::cout << "good_ratio: " << good_ratio << ", ";
         std::cout << "good_clusters: " << good_clusters << ", ";
@@ -464,7 +495,7 @@ namespace {
 
     void testMatchingMultipleDetectors(const cv::Mat &img1, const cv::Mat &img2,
                                         double &nn_score, double &nn2_score, double &nn_score_cv, double &nn2_score_cv,
-                                        double &time_my, double &time_cv, double &time_bruteforce,
+                                        double &time_my, double &time_cv, double &time_bruteforce, double &time_bruteforce_gpu,
                                         double &good_nn, double &good_ratio, double &good_clusters, double &good_ratio_and_clusters, bool do_bruteforce = true)
     {
         {
@@ -477,7 +508,7 @@ namespace {
 
             testMatching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2,
                          nn_score, nn2_score, nn_score_cv, nn2_score_cv,
-                         time_my, time_cv, time_bruteforce,
+                         time_my, time_cv, time_bruteforce, time_bruteforce_gpu,
                          good_nn, good_ratio, good_clusters, good_ratio_and_clusters, do_bruteforce);
         }
 #if ENABLE_MY_DESCRIPTOR
@@ -491,7 +522,7 @@ namespace {
 
             testMatching(img1, img2, keypoints1, keypoints2, descriptors1, descriptors2,
                          nn_score, nn2_score, nn_score_cv, nn2_score_cv,
-                         time_my, time_cv, time_bruteforce,
+                         time_my, time_cv, time_bruteforce, time_bruteforce_gpu,
                          good_nn, good_ratio, good_clusters, good_ratio_and_clusters, do_bruteforce);
         }
 #endif
@@ -506,11 +537,11 @@ TEST (MATCHING, SimpleMatching) {
 
 
     double nn_score, nn2_score, nn_score_cv, nn2_score_cv,
-            time_my, time_cv, time_bruteforce, good_nn, good_ratio, good_clusters, good_ratio_and_clusters;
+            time_my, time_cv, time_bruteforce, time_bruteforce_gpu, good_nn, good_ratio, good_clusters, good_ratio_and_clusters;
 
     testMatchingMultipleDetectors(img1, img2,
                                   nn_score, nn2_score, nn_score_cv, nn2_score_cv,
-                                  time_my, time_cv, time_bruteforce,
+                                  time_my, time_cv, time_bruteforce, time_bruteforce_gpu,
                                   good_nn, good_ratio, good_clusters, good_ratio_and_clusters);
 
 
@@ -520,6 +551,10 @@ TEST (MATCHING, SimpleMatching) {
 
     EXPECT_LT(time_my, 1.5 * time_cv);
     EXPECT_LT(time_my, 0.1 * time_bruteforce);
+
+#if ENABLE_GPU_BRUTEFORCE_MATCHER
+    EXPECT_LT(time_bruteforce_gpu, time_bruteforce);
+#endif
 
 #if ENABLE_MY_MATCHING
     EXPECT_LT(good_nn, good_ratio);
@@ -571,11 +606,11 @@ namespace {
         cv::imwrite("data/debug/test_matching/" + getTestSuiteName() + "_" + getTestName() + "_" + "hiking_right_rotated_noise.png", img2);
 
         double nn_score, nn2_score, nn_score_cv, nn2_score_cv,
-                time_my, time_cv, time_bruteforce, good_nn, good_ratio, good_clusters, good_ratio_and_clusters;
+                time_my, time_cv, time_bruteforce, time_bruteforce_gpu, good_nn, good_ratio, good_clusters, good_ratio_and_clusters;
 
         testMatchingMultipleDetectors(img1, img2,
                                       nn_score, nn2_score, nn_score_cv, nn2_score_cv,
-                                      time_my, time_cv, time_bruteforce,
+                                      time_my, time_cv, time_bruteforce, time_bruteforce_gpu,
                                       good_nn, good_ratio, good_clusters, good_ratio_and_clusters, false);
 
         EXPECT_LT(time_my, 1.5 * time_cv);
