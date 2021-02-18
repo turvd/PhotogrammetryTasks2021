@@ -81,7 +81,7 @@ void phg::BruteforceMatcherGPU::knnMatch(const cv::Mat &query_desc,
     t.restart();
     unsigned int work_group_size = 128;
     rassert(work_group_size == ndim, 3541414124125125); // мы полагаемся на то что один поток рабочей группы будет грузить одно значение из дескриптора
-    unsigned int global_work_size = (ndesc + keypoints_per_wg - 1) / keypoints_per_wg * keypoints_per_wg; // каждая рабочая группа обрабатывает keypoints_per_wg=4 дескриптора из query (сопоставляет их со всеми train)
+    unsigned int global_work_size = (ndesc + keypoints_per_wg - 1) / keypoints_per_wg; // каждая рабочая группа обрабатывает keypoints_per_wg=4 дескриптора из query (сопоставляет их со всеми train)
     gpu::WorkSize ws(work_group_size, 1,
                      work_group_size, global_work_size);
     bruteforce_matcher.exec(ws,
