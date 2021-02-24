@@ -4,23 +4,24 @@
 #include <libutils/bbox2.h>
 #include <iostream>
 
-void phg::calc_homography(int i, std::vector<cv::Mat> &Hs, std::vector<bool> &used,
-                    const std::vector<cv::Mat> &imgs, const std::vector<int> &parent,
-                    std::function<cv::Mat(const cv::Mat &, const cv::Mat &)> &homography_builder)
-{
-    if(used[i]) return;
-    used[i] = 1;
-    int p = parent[i];
-    if (p == -1) {
-        Hs[i] = cv::Mat::eye(3, 3, CV_64F);
-    }
-    else {
-        cv::Mat h = homography_builder(imgs[i], imgs[p]);
-        calc_homography(p, Hs, used, imgs, parent, homography_builder);
-        Hs[i] = Hs[p] * h;
+namespace phg {
+    void calc_homography(int i, std::vector<cv::Mat> &Hs, std::vector<bool> &used,
+                        const std::vector<cv::Mat> &imgs, const std::vector<int> &parent,
+                        std::function<cv::Mat(const cv::Mat &, const cv::Mat &)> &homography_builder)
+    {
+        if(used[i]) return;
+        used[i] = 1;
+        int p = parent[i];
+        if (p == -1) {
+            Hs[i] = cv::Mat::eye(3, 3, CV_64F);
+        }
+        else {
+            cv::Mat h = homography_builder(imgs[i], imgs[p]);
+            calc_homography(p, Hs, used, imgs, parent, homography_builder);
+            Hs[i] = Hs[p] * h;
+        }
     }
 }
-
 /*
  * imgs - список картинок
  * parent - список индексов, каждый индекс указывает, к какой картинке должна быть приклеена текущая картинка

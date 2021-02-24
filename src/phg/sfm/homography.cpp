@@ -240,7 +240,7 @@ cv::Mat phg::findHomographyCV(const std::vector<cv::Point2f> &points_lhs, const 
 // таким преобразованием внутри занимается функции cv::perspectiveTransform и cv::warpPerspective
 cv::Point2d phg::transformPoint(const cv::Point2d &pt, const cv::Mat &T)
 {
-    cv::Mat ans = T * cv::Point3d(pt.x, pt.y, 1.0);
+    cv::Mat ans = T * cv::Vec3d(pt.x, pt.y, 1.0);
     return cv::Point2d(ans.at<double>(0) / ans.at<double>(2), ans.at<double>(1) / ans.at<double>(2));
     //throw std::runtime_error("not implemented yet");
 }
