@@ -24,7 +24,8 @@
 #define INITIAL_IMG_SIGMA           0.75                 // предполагаемая степень размытия изначальной картинки
 #define INPUT_IMG_PRE_BLUR_SIGMA    1.0                  // сглаживание изначальной картинки
    
-#define SUBPIXEL_FITTING_ENABLE      0    // такие тумблеры включающие/выключающие очередное улучшение алгоритма позволяют оценить какой вклад эта фича вносит в качество результата если в рамках уже готового алгоритма попробовать ее включить/выключить
+#define SUBPIXEL_FITTING_ENABLE      1    // такие тумблеры включающие/выключающие очередное улучшение алгоритма позволяют оценить какой вклад эта фича вносит в качество результата если в рамках уже готового алгоритма попробовать ее включить/выключить
+#define SUBPIXEL_FITTING_STEPS       5
 
 #define ORIENTATION_NHISTS           36   // число корзин при определении ориентации ключевой точки через гистограммы
 #define ORIENTATION_WINDOW_R         3    // минимальный радиус окна в рамках которого будет выбрана ориентиация (в пикселях), R=3 => 5x5 окно
@@ -79,23 +80,20 @@ void phg::SIFT::buildPyramids(const cv::Mat &imgOrg, std::vector<cv::Mat> &gauss
             int layer = 0;
             size_t prevOctave = octave - 1;
             // берем картинку с предыдущей октавы и уменьшаем ее в два раза без какого бы то ни было дополнительного размытия (сигмы должны совпадать)
-            // cv::Mat img = gaussianPyramid[ TODO ].clone();
+            cv::Mat img = gaussianPyramid[prevOctave * OCTAVE_GAUSSIAN_IMAGES + OCTAVE_GAUSSIAN_IMAGES - 1].clone();
             // тут есть очень важный момент, мы должны указать fx=0.5, fy=0.5 иначе при нечетном размере картинка будет не идеально 2 пикселя в один схлопываться - а слегка смещаться
-            // cv::resize(img, img, cv::Size( TODO , TODO ), 0.5, 0.5, cv::INTER_NEAREST);
-            // gaussianPyramid[octave * OCTAVE_GAUSSIAN_IMAGES + layer] = img;
+            cv::resize(img, img, cv::Size(0, 0), 0.5, 0.5, cv::INTER_NEAREST);
+            gaussianPyramid[octave * OCTAVE_GAUSSIAN_IMAGES + layer] = img;
         }
 
-//        #pragma omp parallel for // TODO: если выполните TODO про "размытие из изначального слоя октавы" ниже - раскоментируйте это распараллеливание, ведь теперь слои считаются независимо (из самого первого), проверьте что результат на картинках не изменился
+        #pragma omp parallel for // TODO: если выполните TODO про "размытие из изначального слоя октавы" ниже - раскоментируйте это распараллеливание, ведь теперь слои считаются независимо (из самого первого), проверьте что результат на картинках не изменился
         for (ptrdiff_t layer = 1; layer < OCTAVE_GAUSSIAN_IMAGES; ++layer) {
-            size_t prevLayer = layer - 1;
+            size_t prevLayer = 0;
 
             // если есть два последовательных гауссовых размытия с sigma1 и sigma2, то результат будет с sigma12=sqrt(sigma1^2 + sigma2^2) => sigma2=sqrt(sigma12^2-sigma1^2)
             double sigmaPrev = INITIAL_IMG_SIGMA * pow(2.0, octave) * pow(k, prevLayer); // sigma1  - сигма до которой дошла картинка на предыдущем слое
             double sigmaCur  = INITIAL_IMG_SIGMA * pow(2.0, octave) * pow(k, layer);     // sigma12 - сигма до которой мы хотим дойти на текущем слое
             double sigma = sqrt(sigmaCur*sigmaCur - sigmaPrev*sigmaPrev);                // sigma2  - сигма которую надо добавить чтобы довести sigma1 до sigma12
-            // посмотрите внимательно на формулу выше и решите как по мнению этой формулы соотносится сигма у первого А-слоя i-ой октавы
-            // и сигма у одного из последних слоев Б предыдущей (i-1)-ой октавы из которого этот слой А был получен?
-            // а как чисто идейно должны бы соотноситься сигмы размытия у двух картинок если картинка А была получена из картинки Б простым уменьшением в 2 раза?
 
             // TODO: переделайте это добавочное размытие с варианта "размываем предыдущий слой" на вариант "размываем самый первый слой октавы до степени размытия сигмы нашего текущего слоя"
             // проверьте - картинки отладочного вывода выглядят один-в-один до/после? (посмотрите на них туда-сюда быстро мигая)
@@ -206,6 +204,12 @@ void phg::SIFT::findLocalExtremasAndDescribe(const std::vector<cv::Mat> &gaussia
                         for (int dy = -1; dy <= 1 && (is_min || is_max); ++dy) {
                         for (int dx = -1; dx <= 1 && (is_min || is_max); ++dx) {
                             // TODO проверить является ли наш центр все еще экстремум по сравнению с соседом DoGs[1+dz].at<float>(j+dy, i+dx) ? (не забудьте учесть что один из соседов - это мы сами)
+                            if (dz ==0 && dy == 0 && dx == 0)
+                                continue;
+                            if (DoGs[1+dz].at<float>(j+dy, i+dx) >= center)
+                                is_max = false;
+                            if (DoGs[1+dz].at<float>(j+dy, i+dx) <= center)
+                                is_min = false;
                         }
                         }
                         }
@@ -223,6 +227,44 @@ void phg::SIFT::findLocalExtremasAndDescribe(const std::vector<cv::Mat> &gaussia
 #if SUBPIXEL_FITTING_ENABLE // такие тумблеры включающие/выключающие очередное улучшение алгоритма позволяют оценить какой вклад эта фича вносит в качество результата если в рамках уже готового алгоритма попробовать ее включить/выключить
                         {
                             // TODO
+                            ptrdiff_t ti = i;
+                            ptrdiff_t tj = j;
+                            for(size_t step = 0 ; step < SUBPIXEL_FITTING_STEPS; ++step ) {
+                                const float dfdx = 0.5 * (cur.at<float>(tj, ti + 1) - cur.at<float>(tj, ti - 1));
+                                const float dfdy = 0.5 * (cur.at<float>(tj + 1, ti) - cur.at<float>(tj - 1, ti));
+                                const float dfdz = 0.5 * (next.at<float>(tj, ti) - prev.at<float>(tj, ti));
+
+                                const float dfdxx = cur.at<float>(tj, ti + 1) + cur.at<float>(tj, ti - 1) - 2 * cur.at<float>(tj, ti);
+                                const float dfdyy = cur.at<float>(tj + 1, ti) + cur.at<float>(tj - 1, ti) - 2 * cur.at<float>(tj, ti);
+                                const float dfdzz = prev.at<float>(tj, ti) + next.at<float>(tj, ti) - 2 * cur.at<float>(tj, ti);
+                                const float dfdxy = 0.25 * (cur.at<float>(tj + 1, ti + 1) + cur.at<float>(tj - 1, ti - 1) - cur.at<float>(tj + 1, ti - 1) - cur.at<float>(tj - 1, ti + 1));
+                                const float dfdxz = 0.25 * (next.at<float>(tj, ti + 1) + prev.at<float>(tj, ti - 1) - next.at<float>(tj, ti - 1) - prev.at<float>(tj, ti + 1));
+                                const float dfdyz = 0.25 * (next.at<float>(tj + 1, ti) + prev.at<float>(tj - 1, ti) - prev.at<float>(tj + 1, ti) - next.at<float>(tj - 1, ti));
+
+                                cv::Vec3f df(dfdx, dfdy, dfdz);
+                                cv::Matx33f d2f(dfdxx, dfdxy, dfdxz, dfdxy, dfdyy, dfdyz, dfdxz, dfdyz, dfdzz);
+                                cv::Vec3f dxyz = d2f.solve( -df, cv::DecompTypes::DECOMP_LU);
+
+                                dx = dxyz[0];
+                                dy = dxyz[1];
+
+                                if(std::abs(dx) < 0.5f && std::abs(dy) < 0.5f) {
+                                    dx += ti - i;
+                                    dy += tj - j;
+                                    dvalue = cur.at<float>(tj, ti) - cur.at<float>(j, i) + df.dot(cv::Vec3f(dxyz[0], dxyz[1], 0));
+                                    break;
+                                }
+                                
+                                ti += cvRound(dx);
+                                tj += cvRound(dy);
+
+                                if(ti < 1 || ti >= cur.cols - 1  || tj < 1 || tj >= cur.rows - 1) {
+                                    dx = 0.0f;
+                                    dy = 0.0f;
+                                    dvalue = 0.0f;
+                                    break;
+                                }
+                            }
                         }
 #endif
                         // TODO сделать фильтрацию слабых точек по слабому контрасту
@@ -252,7 +294,11 @@ void phg::SIFT::findLocalExtremasAndDescribe(const std::vector<cv::Mat> &gaussia
                             float nextValue = votes[(bin + 1) % ORIENTATION_NHISTS];
                             if (value > prevValue && value > nextValue && votes[bin] > biggestVote * ORIENTATION_VOTES_PEAK_RATIO) {
                                 // TODO добавьте уточнение угла наклона - может помочь определенная выше функция parabolaFitting(float x0, float x1, float x2)
-                                kp.angle = (bin + 0.5) * (360.0 / ORIENTATION_NHISTS);
+                                kp.angle = (bin + 0.5 + parabolaFitting(prevValue, value, nextValue)) * (360.0 / ORIENTATION_NHISTS);
+                                if (kp.angle < 0.0)
+                                    kp.angle += 360.0;
+                                if (kp.angle >= 360.0)
+                                    kp.angle -= 360.0;
                                 rassert(kp.angle >= 0.0 && kp.angle <= 360.0, 123512412412);
                                 
                                 std::vector<float> descriptor;
@@ -302,19 +348,21 @@ bool phg::SIFT::buildLocalOrientationHists(const cv::Mat &img, size_t i, size_t 
         for (size_t x = i - radius + 1; x < i + radius; ++x) {
             // m(x, y)=(L(x + 1, y) − L(x − 1, y))^2 + (L(x, y + 1) − L(x, y − 1))^2
             // double magnitude = TODO
-
+            double dx = img.at<float>(y, x + 1) - img.at<float>(y, x - 1);
+            double dy = img.at<float>(y + 1, x) - img.at<float>(y - 1, x);
+            double magnitude = sqrt(dx * dx + dy * dy);
             // orientation == theta
             // atan( (L(x, y + 1) − L(x, y − 1)) / (L(x + 1, y) − L(x − 1, y)) )
-            // double orientation = TODO // подсказка - используйте atan2(dy, dx)
-//            orientation = orientation * 180.0 / M_PI;
-//            orientation = (orientation + 90.0);
-//            if (orientation <  0.0)   orientation += 360.0;
-//            if (orientation >= 360.0) orientation -= 360.0;
-//            rassert(orientation >= 0.0 && orientation < 360.0, 5361615612);
-//            static_assert(360 % ORIENTATION_NHISTS == 0, "Inappropriate bins number!");
-//            size_t bin = TODO
-//            rassert(bin < ORIENTATION_NHISTS, 361236315613);
-//            sum[bin] += magnitude;
+            double orientation = atan2(dy, dx); // подсказка - используйте atan2(dy, dx)
+            orientation = orientation * 180.0 / M_PI;
+            orientation = (orientation + 90.0);
+            if (orientation <  0.0)   orientation += 360.0;
+            if (orientation >= 360.0) orientation -= 360.0;
+            rassert(orientation >= 0.0 && orientation < 360.0, 5361615612);
+            static_assert(360 % ORIENTATION_NHISTS == 0, "Inappropriate bins number!");
+            size_t bin = ORIENTATION_NHISTS * orientation / 360;
+            rassert(bin < ORIENTATION_NHISTS, 361236315613);
+            sum[bin] += magnitude;
             // TODO может быть сгладить получившиеся гистограммы улучшит результат? 
         }
     }
@@ -343,32 +391,37 @@ bool phg::SIFT::buildDescriptor(const cv::Mat &img, float px, float py, double d
                 for (int smpi = 0; smpi < DESCRIPTOR_SAMPLES_N; ++smpi) { // перебираем столбик очередного замера для текущей гистограммы
                     for (int smpy = 0; smpy < smpW; ++smpy) { // перебираем ряд пикселей текущего замера
                         for (int smpx = 0; smpx < smpW; ++smpx) { // перебираем столбик пикселей текущего замера
-//                            cv::Point2f shift(((-DESCRIPTOR_SIZE/2.0 + hsti) * DESCRIPTOR_SAMPLES_N + smpi) * smpW, TODO);
-//                            std::vector<cv::Point2f> shiftInVector(1, shift);
-//                            cv::transform(shiftInVector, shiftInVector, relativeShiftRotation); // преобразуем относительный сдвиг с учетом ориентации ключевой точки
-//                            shift = shiftInVector[0];
+                            cv::Point2f shift(((-DESCRIPTOR_SIZE/2.0 + hsti) * DESCRIPTOR_SAMPLES_N + smpi) * smpW, 
+                                              ((-DESCRIPTOR_SIZE/2.0 + hstj) * DESCRIPTOR_SAMPLES_N + smpj) * smpW);
+                            std::vector<cv::Point2f> shiftInVector(1, shift);
+                            cv::transform(shiftInVector, shiftInVector, relativeShiftRotation); // преобразуем относительный сдвиг с учетом ориентации ключевой точки
+                            shift = shiftInVector[0];
 
-//                            int x = (int) (px + shift.x);
-//                            int y = TODO;
+                            int x = (int) (px + shift.x);
+                            int y = (int) (py + shift.y);
 
-//                            if (y - 1 < 0 || y + 1 > img.rows || x - 1 < 0 || x + 1 > img.cols)
-//                                return false;
+                            if (y - 1 < 0 || y + 1 > img.rows || x - 1 < 0 || x + 1 > img.cols)
+                                return false;
 
-//                            double magnitude = TODO
+                            double dx = img.at<float>(y, x + 1) - img.at<float>(y, x - 1);
+                            double dy = img.at<float>(y + 1, x) - img.at<float>(y - 1, x);
+                            double magnitude = sqrt(dx * dx + dy * dy);
 
-//                            double orientation = atan2(TODO);
-//                            orientation = orientation * 180.0 / M_PI;
-//                            orientation = (orientation + 90.0);
-//                            if (orientation <  0.0)   orientation += 360.0;
-//                            if (orientation >= 360.0) orientation -= 360.0;
+                            double orientation = atan2(dy, dx);
+                            orientation = orientation * 180.0 / M_PI;
+                            orientation = (orientation + 90.0);
+                            if (orientation <  0.0)   orientation += 360.0;
+                            if (orientation >= 360.0) orientation -= 360.0;
 
-                              // TODO за счет чего этот вклад будет сравниваться с этим же вкладом даже если эта картинка будет повернута? что нужно сделать с ориентацией каждого градиента из окрестности этой ключевой точки?
-
-//                            rassert(orientation >= 0.0 && orientation < 360.0, 3515215125412);
+                            // TODO за счет чего этот вклад будет сравниваться с этим же вкладом даже если эта картинка будет повернута? что нужно сделать с ориентацией каждого градиента из окрестности этой ключевой точки?
+                            orientation -= angle;
+                            if (orientation <  0.0)   orientation += 360.0;
+                            if (orientation >= 360.0) orientation -= 360.0;
+                            rassert(orientation >= 0.0 && orientation < 360.0, 3515215125412);
                             static_assert(360 % DESCRIPTOR_NBINS == 0, "Inappropriate bins number!");
-//                            size_t bin = TODO;
-//                            rassert(bin < DESCRIPTOR_NBINS, 361236315613);
-//                            sum[bin] += magnitude;
+                            size_t bin = DESCRIPTOR_NBINS * orientation / 360;
+                            rassert(bin < DESCRIPTOR_NBINS, 361236315613);
+                            sum[bin] += magnitude;
                             // TODO хорошая идея добавить трилинейную интерполяцию как предложено в статье, или хотя бы сэмулировать ее - сгладить получившиеся гистограммы
                         }
                     }
@@ -376,6 +429,12 @@ bool phg::SIFT::buildDescriptor(const cv::Mat &img, float px, float py, double d
             }
 
             // TODO нормализовать наш вектор дескриптор (подсказка: посчитать его длину и поделить каждую компоненту на эту длину)
+            double len = 0;
+            for (int bin = 0; bin < DESCRIPTOR_NBINS; ++bin)
+                len += sum[bin] * sum[bin];
+            len = sqrt(len);
+            for (int bin = 0; bin < DESCRIPTOR_NBINS; ++bin)
+                sum[bin] /= len;
 
             float *votes = &(descriptor[(hstj * DESCRIPTOR_SIZE + hsti) * DESCRIPTOR_NBINS]); // нашли где будут лежать корзины нашей гистограммы
             for (int bin = 0; bin < DESCRIPTOR_NBINS; ++bin) {
