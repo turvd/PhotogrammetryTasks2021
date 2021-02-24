@@ -49,7 +49,8 @@ __kernel void bruteforce_matcher(__global const float* train,
             // до дескриптора-train в глобальной памяти (#train_idx)
 
             // TODO посчитать квадрат расстояния по нашей размерности (dim_id) и сохранить его в нашу ячейку в dist2_for_reduction
-            dist2_for_reduction[dim_id] = sqr(query_local[NDIM * query_local_i + dim_id] - train_value_dim);
+            float dist = query_local[NDIM * query_local_i + dim_id] - train_value_dim;
+            dist2_for_reduction[dim_id] = dist * dist;
 
             barrier(CLK_LOCAL_MEM_FENCE);
             // TODO суммируем редукцией все что есть в dist2_for_reduction
