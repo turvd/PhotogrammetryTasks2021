@@ -414,7 +414,9 @@ bool phg::SIFT::buildDescriptor(const cv::Mat &img, float px, float py, double d
                             if (orientation >= 360.0) orientation -= 360.0;
 
                             // TODO за счет чего этот вклад будет сравниваться с этим же вкладом даже если эта картинка будет повернута? что нужно сделать с ориентацией каждого градиента из окрестности этой ключевой точки?
-
+                            orientation -= angle;
+                            if (orientation <  0.0)   orientation += 360.0;
+                            if (orientation >= 360.0) orientation -= 360.0;
                             rassert(orientation >= 0.0 && orientation < 360.0, 3515215125412);
                             static_assert(360 % DESCRIPTOR_NBINS == 0, "Inappropriate bins number!");
                             size_t bin = DESCRIPTOR_NBINS * orientation / 360;
