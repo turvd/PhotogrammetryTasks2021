@@ -68,6 +68,14 @@ namespace {
         return rank2 && equal;
     }
 
+    double matRMS(const cv::Matx33d &a, const cv::Matx33d &b)
+    {
+        matrix3d d = (a - b);
+        d = d.mul(d);
+        double rms = std::sqrt(cv::sum(d)[0] / (a.cols * a.rows));
+        return rms;
+    }
+
 }
 
 #define TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps) \
@@ -191,6 +199,59 @@ TEST (SFM, EmatrixSimple) {
     matrix3d E = phg::fmatrix2ematrix(F, calib, calib);
 
     EXPECT_TRUE(checkEmatrixSpectralProperty(E));
+}
+
+TEST (SFM, EmatrixDecomposeSimple) {
+
+    phg::Calibration calib(360, 240);
+    std::cout << "EmatrixSimple: calib: \n" << calib.K() << std::endl;
+
+    std::vector<cv::Vec2d> pts0, pts1;
+    std::srand(1);
+    for (int i = 0; i < 8; ++i) {
+        pts0.push_back({(double) (std::rand() % calib.width()), (double) (std::rand() % calib.height())});
+        pts1.push_back({(double) (std::rand() % calib.width()), (double) (std::rand() % calib.height())});
+    }
+
+    matrix3d F = phg::findFMatrix(pts0, pts1, 10);
+    matrix3d E = phg::fmatrix2ematrix(F, calib, calib);
+
+    matrix34d P0, P1;
+    phg::decomposeEMatrix(P0, P1, E, pts0, pts1, calib, calib);
+
+    matrix3d R;
+    R = P1.get_minor<3, 3>(0, 0);
+    vector3d T;
+    T(0) = P1(0, 3);
+    T(1) = P1(1, 3);
+    T(2) = P1(2, 3);
+
+    matrix3d E1 = phg::composeEMatrixRT(R, T);
+    matrix3d E2 = phg::composeFMatrix(P0, P1);
+
+    EXPECT_NE(E(2, 2), 0);
+    EXPECT_NE(E1(2, 2), 0);
+    EXPECT_NE(E2(2, 2), 0);
+
+    E /= E(2, 2);
+    E1 /= E1(2, 2);
+    E2 /= E2(2, 2);
+
+    double rms1 = matRMS(E, E1);
+    double rms2 = matRMS(E, E2);
+    double rms3 = matRMS(E1, E2);
+
+    std::cout << "E: \n" << E << std::endl;
+    std::cout << "E1: \n" << E1 << std::endl;
+    std::cout << "E2: \n" << E2 << std::endl;
+    std::cout << "RMS1: " << rms1 << std::endl;
+    std::cout << "RMS2: " << rms2 << std::endl;
+    std::cout << "RMS3: " << rms3 << std::endl;
+
+    double eps = 1e-10;
+    EXPECT_LT(rms1, eps);
+    EXPECT_LT(rms2, eps);
+    EXPECT_LT(rms3, eps);
 }
 
 TEST (MATCHING, Test2View) {

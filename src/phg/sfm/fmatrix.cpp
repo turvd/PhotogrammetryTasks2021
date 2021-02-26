@@ -212,3 +212,35 @@ cv::Matx33d phg::findFMatrix(const std::vector <cv::Vec2d> &m0, const std::vecto
 cv::Matx33d phg::findFMatrixCV(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, double threshold_px) {
     return cv::findFundamentalMat(m0, m1, cv::FM_RANSAC, threshold_px);
 }
+
+cv::Matx33d phg::composeFMatrix(const cv::Matx34d &P0, const cv::Matx34d &P1)
+{
+    // compute fundamental matrix from general cameras
+    // Hartley & Zisserman (17.3 - p412)
+    
+    cv::Matx33d F;
+
+#define det4(a, b, c, d) \
+      ((a)(0) * (b)(1) - (a)(1) * (b)(0)) * ((c)(2) * (d)(3) - (c)(3) * (d)(2)) - \
+      ((a)(0) * (b)(2) - (a)(2) * (b)(0)) * ((c)(1) * (d)(3) - (c)(3) * (d)(1)) + \
+      ((a)(0) * (b)(3) - (a)(3) * (b)(0)) * ((c)(1) * (d)(2) - (c)(2) * (d)(1)) + \
+      ((a)(1) * (b)(2) - (a)(2) * (b)(1)) * ((c)(0) * (d)(3) - (c)(3) * (d)(0)) - \
+      ((a)(1) * (b)(3) - (a)(3) * (b)(1)) * ((c)(0) * (d)(2) - (c)(2) * (d)(0)) + \
+      ((a)(2) * (b)(3) - (a)(3) * (b)(2)) * ((c)(0) * (d)(1) - (c)(1) * (d)(0))
+
+    int i, j;
+    for (j = 0; j < 3; j++)
+        for (i = 0; i < 3; i++) {
+            // here the sign is encoded in the order of lines ~ai
+            const auto a1 = P0.row((i + 1) % 3);
+            const auto a2 = P0.row((i + 2) % 3);
+            const auto b1 = P1.row((j + 1) % 3);
+            const auto b2 = P1.row((j + 2) % 3);
+
+            F(j, i) = det4(a1, a2, b1, b2);
+        }
+
+#undef det4
+    
+    return F;
+}
