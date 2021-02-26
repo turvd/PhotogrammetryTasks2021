@@ -1,5 +1,6 @@
 #include "fmatrix.h"
-#include "ransac.h"
+#include "sfm_utils.h"
+#include "defines.h"
 
 #include <iostream>
 #include <eigen3/Eigen/SVD>
@@ -9,11 +10,8 @@ namespace {
 
     void infoF(const cv::Matx33d &Fcv)
     {
-        Eigen::MatrixXd F(3, 3);
-
-        F(0, 0) = Fcv(0, 0); F(0, 1) = Fcv(0, 1); F(0, 2) = Fcv(0, 2);
-        F(1, 0) = Fcv(1, 0); F(1, 1) = Fcv(1, 1); F(1, 2) = Fcv(1, 2);
-        F(2, 0) = Fcv(2, 0); F(2, 1) = Fcv(2, 1); F(2, 2) = Fcv(2, 2);
+        Eigen::MatrixXd F;
+        copy(Fcv, F);
 
         Eigen::JacobiSVD<Eigen::MatrixXd> svdf(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
@@ -67,9 +65,7 @@ namespace {
         F = U * S * V.transpose();
 
         cv::Matx33d Fcv;
-        Fcv(0, 0) = F(0, 0); Fcv(0, 1) = F(0, 1); Fcv(0, 2) = F(0, 2);
-        Fcv(1, 0) = F(1, 0); Fcv(1, 1) = F(1, 1); Fcv(1, 2) = F(1, 2);
-        Fcv(2, 0) = F(2, 0); Fcv(2, 1) = F(2, 1); Fcv(2, 2) = F(2, 2);
+        copy(F, Fcv);
 
         return Fcv;
     }
@@ -122,7 +118,7 @@ namespace {
         return cv::Vec2d(tmp[0] / tmp[2], tmp[1] / tmp[2]);
     }
 
-    cv::Matx33d estimateFMatrixRANSAC(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1)
+    cv::Matx33d estimateFMatrixRANSAC(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, double threshold_px)
     {
         if (m0.size() != m1.size()) {
             throw std::runtime_error("estimateFMatrixRANSAC: m0.size() != m1.size()");
@@ -152,7 +148,6 @@ namespace {
 
         const int n_samples = 8;
         uint64_t seed = 1;
-        const double reprojection_error_threshold_px = 3;
 
         int best_support = 0;
         cv::Matx33d best_F;
@@ -180,7 +175,7 @@ namespace {
             int support = 0;
             for (int i = 0; i < n_matches; ++i) {
                 //                    todo todo todo                                                         todo todo todo
-                if (phg::epipolarTest(m0[i], m1[i], F, reprojection_error_threshold_px) && phg::epipolarTest(m1[i], m0[i], F.t(), reprojection_error_threshold_px))
+                if (phg::epipolarTest(m0[i], m1[i], F, threshold_px) && phg::epipolarTest(m1[i], m0[i], F.t(), threshold_px))
                 {
                     ++support;
                 }
@@ -210,22 +205,10 @@ namespace {
 
 }
 
-cv::Matx33d phg::findFMatrix(const std::vector <cv::Vec2d> &m0, const std::vector <cv::Vec2d> &m1) {
-    return estimateFMatrixRANSAC(m0, m1);
+cv::Matx33d phg::findFMatrix(const std::vector <cv::Vec2d> &m0, const std::vector <cv::Vec2d> &m1, double threshold_px) {
+    return estimateFMatrixRANSAC(m0, m1, threshold_px);
 }
 
-void phg::decomposeFMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &F) {
-    throw std::runtime_error("not implemented");
-}
-
-cv::Matx33d phg::findFMatrixCV(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1) {
-    return cv::findFundamentalMat(m0, m1, cv::FM_RANSAC, 3);
-}
-
-bool phg::epipolarTest(const cv::Vec2f &pt0, const cv::Vec2f &pt1, const cv::Matx33d &F, double t)
-{
-    cv::Vec3d l1 = F * cv::Vec3d(pt0[0], pt0[1], 1.0);
-    double s1 = l1[0] * l1[0] + l1[1] * l1[1];
-    double d1 = l1[0] * pt1[0] + l1[1] * pt1[1] + l1[2];
-    return d1*d1 < t*t * s1;
+cv::Matx33d phg::findFMatrixCV(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, double threshold_px) {
+    return cv::findFundamentalMat(m0, m1, cv::FM_RANSAC, threshold_px);
 }

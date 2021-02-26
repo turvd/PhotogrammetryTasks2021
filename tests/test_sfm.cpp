@@ -8,6 +8,10 @@
 #include <libutils/timer.h>
 #include <phg/matching/gms_matcher.h>
 #include <phg/sfm/fmatrix.h>
+#include <phg/sfm/ematrix.h>
+#include <phg/sfm/sfm_utils.h>
+#include <phg/sfm/defines.h>
+#include <eigen3/Eigen/SVD>
 
 #include "utils/test_utils.h"
 
@@ -30,9 +34,168 @@ namespace {
         }
     }
 
+    // Fundamental matrix has to be of rank 2. See Hartley & Zisserman, p.243
+    bool checkFmatrixSpectralProperty(const matrix3d &Fcv)
+    {
+        Eigen::MatrixXd F;
+        copy(Fcv, F);
+
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        Eigen::VectorXd s = svd.singularValues();
+
+        std::cout << "checkFmatrixSpectralProperty: s: " << s.transpose() << std::endl;
+
+        double thresh = 1e10;
+        return s[0] > thresh * s[2] && s[1] > thresh * s[2];
+    }
+
+    // Essential matrix has to be of rank 2, and two non-zero singular values have to be equal. See Hartley & Zisserman, p.257
+    bool checkEmatrixSpectralProperty(const matrix3d &Fcv)
+    {
+        Eigen::MatrixXd F;
+        copy(Fcv, F);
+
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(F, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        Eigen::VectorXd s = svd.singularValues();
+
+        std::cout << "checkEmatrixSpectralProperty: s: " << s.transpose() << std::endl;
+
+        double thresh = 1e10;
+
+        bool rank2 = s[0] > thresh * s[2] && s[1] > thresh * s[2];
+        bool equal = (s[0] < (1.0 + thresh) * s[1]) && (s[1] < (1.0 + thresh) * s[0]);
+
+        return rank2 && equal;
+    }
+
+}
+
+#define TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps) \
+EXPECT_FALSE(phg::epipolarTest(pt0, pt1, F, std::max(0.0, t - eps))); \
+EXPECT_TRUE(phg::epipolarTest(pt0, pt1, F, t + eps));
+
+TEST (SFM, EpipolarDist) {
+
+    const vector2d pt0 = {0, 0};
+    const double eps = 1e-5;
+
+    {
+        // line: y = 0
+        const double l[3] = {0, 1, 0};
+        const matrix3d F = {0, 0, l[0], 0, 0, l[1], 0, 0, l[2]};
+
+        vector2d pt1;
+        double t;
+
+        pt1 = {0, 0};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {1000, 0};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {0, 1000};
+        t = 1000;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+    }
+
+    {
+        // line: y = x
+        const double l[3] = {1, -1, 0};
+        const matrix3d F = {0, 0, l[0], 0, 0, l[1], 0, 0, l[2]};
+
+        vector2d pt1;
+        double t;
+
+        pt1 = {0, 0};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {1, 1};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {-1, -1};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {-1, 1};
+        t = std::sqrt(2);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {10, 0};
+        t = 10 / std::sqrt(2);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+    }
+
+    {
+        // line: y = x + 1
+        const double l[3] = {1, -1, 1};
+        const matrix3d F = {0, 0, l[0], 0, 0, l[1], 0, 0, l[2]};
+
+        vector2d pt1;
+        double t;
+
+        pt1 = {0, 1};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {1, 2};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {-1, 0};
+        t = 0;
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {-1, 2};
+        t = std::sqrt(2);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+
+        pt1 = {10, 1};
+        t = 10 / std::sqrt(2);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+    }
+}
+
+TEST (SFM, FmatrixSimple) {
+
+    std::vector<cv::Vec2d> pts0, pts1;
+    std::srand(1);
+    for (int i = 0; i < 8; ++i) {
+        pts0.push_back({(double) (std::rand() % 100), (double) (std::rand() % 100)});
+        pts1.push_back({(double) (std::rand() % 100), (double) (std::rand() % 100)});
+    }
+
+    matrix3d F = phg::findFMatrix(pts0, pts1);
+    matrix3d Fcv = phg::findFMatrixCV(pts0, pts1);
+
+    EXPECT_TRUE(checkFmatrixSpectralProperty(F));
+    EXPECT_TRUE(checkFmatrixSpectralProperty(Fcv));
+}
+
+TEST (SFM, EmatrixSimple) {
+
+    phg::Calibration calib(360, 240);
+    std::cout << "EmatrixSimple: calib: \n" << calib.K() << std::endl;
+
+    std::vector<cv::Vec2d> pts0, pts1;
+    std::srand(1);
+    for (int i = 0; i < 8; ++i) {
+        pts0.push_back({(double) (std::rand() % calib.width()), (double) (std::rand() % calib.height())});
+        pts1.push_back({(double) (std::rand() % calib.width()), (double) (std::rand() % calib.height())});
+    }
+
+    matrix3d F = phg::findFMatrix(pts0, pts1, 10);
+    matrix3d E = phg::fmatrix2ematrix(F, calib, calib);
+
+    EXPECT_TRUE(checkEmatrixSpectralProperty(E));
 }
 
 TEST (MATCHING, Test2View) {
+
+    return;
 
     using namespace cv;
 

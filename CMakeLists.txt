@@ -52,16 +52,19 @@ set(SOURCES
         src/phg/matching/flann_matcher.cpp
         src/phg/matching/flann_matcher.h
         src/phg/matching/flann_factory.h
+        src/phg/sfm/defines.h
+        src/phg/sfm/ematrix.cpp
+        src/phg/sfm/ematrix.h
         src/phg/sfm/fmatrix.cpp
         src/phg/sfm/fmatrix.h
         src/phg/sfm/homography.cpp
         src/phg/sfm/homography.h
         src/phg/sfm/panorama_stitcher.cpp
         src/phg/sfm/panorama_stitcher.h
-        src/phg/sfm/ransac.cpp
-        src/phg/sfm/ransac.h
         src/phg/sfm/resection.cpp
         src/phg/sfm/resection.h
+        src/phg/sfm/sfm_utils.cpp
+        src/phg/sfm/sfm_utils.h
         src/phg/sfm/triangulation.cpp
         src/phg/sfm/triangulation.h
         )
