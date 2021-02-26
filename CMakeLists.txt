@@ -67,6 +67,8 @@ set(SOURCES
         src/phg/sfm/sfm_utils.h
         src/phg/sfm/triangulation.cpp
         src/phg/sfm/triangulation.h
+        src/phg/utils/point_cloud_export.cpp
+        src/phg/utils/point_cloud_export.h
         )
 
 # convertIntoHeader CMake-функция объявлена в libs/gpu/CMakeLists.txt:71

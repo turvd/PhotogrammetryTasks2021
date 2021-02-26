@@ -178,9 +178,14 @@ void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &
     std::cout << "P1: \n" << P1 << std::endl;
 }
 
-void phg::decomposePMatrix(cv::Matx33d &R, cv::Vec3d &T, const cv::Matx34d &P)
+void phg::decomposeUndistortedPMatrix(cv::Matx33d &R, cv::Vec3d &O, const cv::Matx34d &P)
 {
+    R = P.get_minor<3, 3>(0, 0);
 
+    cv::Matx31d O_mat = -R.t() * P.get_minor<3, 1>(0, 3);
+    O(0) = O_mat(0);
+    O(1) = O_mat(1);
+    O(2) = O_mat(2);
 }
 
 cv::Matx33d phg::composeEMatrixRT(const cv::Matx33d &R, const cv::Vec3d &T) {

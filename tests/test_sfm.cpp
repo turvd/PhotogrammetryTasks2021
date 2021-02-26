@@ -13,6 +13,7 @@
 #include <phg/sfm/defines.h>
 #include <eigen3/Eigen/SVD>
 #include <phg/sfm/triangulation.h>
+#include <phg/utils/point_cloud_export.h>
 
 #include "utils/test_utils.h"
 
@@ -73,6 +74,33 @@ namespace {
         d = d.mul(d);
         double rms = std::sqrt(cv::sum(d)[0] / (a.cols * a.rows));
         return rms;
+    }
+
+    vector3d relativeOrientationAngles(const matrix3d &R0, const vector3d &O0, const matrix3d &R1, const vector3d &O1)
+    {
+        vector3d a = R0 * vector3d{0, 0, 1};
+        vector3d b = O0 - O1;
+        vector3d c = R1 * vector3d{0, 0, 1};
+
+        double norma = cv::norm(a);
+        double normb = cv::norm(b);
+        double normc = cv::norm(c);
+
+        if (norma == 0 || normb == 0 || normc == 0) {
+            throw std::runtime_error("norma == 0 || normb == 0 || normc == 0");
+        }
+
+        a /= norma;
+        b /= normb;
+        c /= normc;
+
+        vector3d cos_vals;
+
+        cos_vals[0] = a.dot(c);
+        cos_vals[1] = a.dot(b);
+        cos_vals[2] = b.dot(c);
+
+        return cos_vals;
     }
 
 }
@@ -367,4 +395,94 @@ TEST (SFM, FmatrixMatchFiltering) {
 
     EXPECT_GT(good_matches_f.size(), 0.5 * good_matches_gms_plus_f.size());
     EXPECT_GT(good_matches_gms_plus_f.size(), 0.5 * good_matches_f.size());
+}
+
+TEST (SFM, RelativePosition2View) {
+
+    using namespace cv;
+
+    const cv::Mat img1 = cv::imread("data/src/test_sfm/saharov/IMG_3023.JPG");
+    const cv::Mat img2 = cv::imread("data/src/test_sfm/saharov/IMG_3024.JPG");
+
+    const phg::Calibration calib0(img1.cols, img1.rows);
+    const phg::Calibration calib1(img2.cols, img2.rows);
+
+    std::cout << "detecting points..." << std::endl;
+    cv::Ptr<cv::FeatureDetector> detector = cv::SIFT::create();
+    std::vector<cv::KeyPoint> keypoints1, keypoints2;
+    cv::Mat descriptors1, descriptors2;
+    detector->detectAndCompute( img1, cv::noArray(), keypoints1, descriptors1 );
+    detector->detectAndCompute( img2, cv::noArray(), keypoints2, descriptors2 );
+
+    std::cout << "matching points..." << std::endl;
+    std::vector<std::vector<DMatch>> knn_matches;
+
+    Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+    matcher->knnMatch( descriptors1, descriptors2, knn_matches, 2 );
+
+    std::vector<DMatch> good_matches(knn_matches.size());
+    for (int i = 0; i < (int) knn_matches.size(); ++i) {
+        good_matches[i] = knn_matches[i][0];
+    }
+
+    std::cout << "filtering matches GMS..." << std::endl;
+    std::vector<DMatch> good_matches_gms;
+    phg::filterMatchesGMS(good_matches, keypoints1, keypoints2, img1.size(), img2.size(), good_matches_gms);
+
+    std::vector<cv::Vec2d> points1, points2;
+    for (const cv::DMatch &match : good_matches_gms) {
+        cv::Vec2f pt1 = keypoints1[match.queryIdx].pt;
+        cv::Vec2f pt2 = keypoints2[match.trainIdx].pt;
+        points1.push_back(pt1);
+        points2.push_back(pt2);
+    }
+
+    matrix3d F = phg::findFMatrix(points1, points2);
+    matrix3d E = phg::fmatrix2ematrix(F, calib0, calib1);
+
+    matrix34d P0, P1;
+    phg::decomposeEMatrix(P0, P1, E, points1, points2, calib0, calib1);
+
+    matrix3d R0, R1;
+    vector3d O0, O1;
+    phg::decomposeUndistortedPMatrix(R0, O0, P0);
+    phg::decomposeUndistortedPMatrix(R1, O1, P1);
+
+    std::cout << "Camera positions: " << std::endl;
+    std::cout << "R0:\n" << R0 << std::endl;
+    std::cout << "O0: " << O0.t() << std::endl;
+    std::cout << "R1:\n" << R1 << std::endl;
+    std::cout << "O1: " << O1.t() << std::endl;
+
+    vector3d relative_cos_vals = relativeOrientationAngles(R0, O0, R1, O1);
+    std::cout << "relative_cos_vals: " << relative_cos_vals << std::endl;
+    vector3d relative_cos_vals_expected = {0.961669, -0.1386, -0.404852};
+    EXPECT_LT(cv::norm(relative_cos_vals - relative_cos_vals_expected), 0.05);
+
+    std::cout << "exporting point cloud..." << std::endl;
+    std::vector<vector3d> point_cloud;
+    std::vector<cv::Vec3b> point_cloud_colors;
+
+    matrix34d Ps[2] = {P0, P1};
+    for (int i = 0; i < (int) good_matches_gms.size(); ++i) {
+        vector3d ms[2] = {calib0.unproject(points1[i]), calib1.unproject(points2[i])};
+        vector4d X = phg::triangulatePoint(Ps, ms, 2);
+
+        if (X(3) == 0) {
+            std::cerr << "infinite point" << std::endl;
+            continue;
+        }
+
+        point_cloud.push_back(vector3d{X(0) / X(3), X(1) / X(3), X(2) / X(3)});
+        point_cloud_colors.push_back(img1.at<cv::Vec3b>(points1[i][1], points1[i][0]));
+    }
+
+    point_cloud.push_back(O0);
+    point_cloud_colors.push_back(cv::Vec3b{0, 0, 255});
+
+    point_cloud.push_back(O1);
+    point_cloud_colors.push_back(cv::Vec3b{0, 0, 255});
+
+    std::cout << "exporting " << point_cloud.size() << " points..." << std::endl;
+    phg::exportPointCloud(point_cloud, "data/debug/test_sfm/point_cloud_2_cameras.ply", point_cloud_colors);
 }
