@@ -5,6 +5,7 @@
 #include "triangulation.h"
 
 #include <eigen3/Eigen/SVD>
+#include <eigen3/Eigen/Dense>
 #include <iostream>
 
 namespace {
@@ -117,6 +118,10 @@ void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &
     vec s = svd.singularValues();
     mat V = svd.matrixV();
 
+    // U, V must be rotation matrices, not just orthogonal
+    if (U.determinant() < 0) U = -U;
+    if (V.determinant() < 0) V = -V;
+
     std::cout << "U:\n" << U << std::endl;
     std::cout << "s:\n" << s << std::endl;
     std::cout << "V:\n" << V << std::endl;
@@ -186,6 +191,8 @@ void phg::decomposeUndistortedPMatrix(cv::Matx33d &R, cv::Vec3d &O, const cv::Ma
     O(0) = O_mat(0);
     O(1) = O_mat(1);
     O(2) = O_mat(2);
+
+    if (cv::determinant(R) < 0) R *= -1;
 }
 
 cv::Matx33d phg::composeEMatrixRT(const cv::Matx33d &R, const cv::Vec3d &T) {
