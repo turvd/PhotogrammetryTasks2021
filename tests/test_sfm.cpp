@@ -19,17 +19,15 @@
 namespace {
 
     void filterMatchesF(const std::vector<cv::DMatch> &matches, const std::vector<cv::KeyPoint> keypoints_query,
-                        const std::vector<cv::KeyPoint> keypoints_train, const cv::Matx33d &F, std::vector<cv::DMatch> &result)
+                        const std::vector<cv::KeyPoint> keypoints_train, const cv::Matx33d &F, std::vector<cv::DMatch> &result, double threshold_px)
     {
         result.clear();
-
-        double reprojection_error_threshold_px = 3;
 
         for (const cv::DMatch &match : matches) {
             cv::Vec2f pt1 = keypoints_query[match.queryIdx].pt;
             cv::Vec2f pt2 = keypoints_train[match.trainIdx].pt;
 
-            if (phg::epipolarTest(pt1, pt2, F, reprojection_error_threshold_px)) {
+            if (phg::epipolarTest(pt1, pt2, F, threshold_px)) {
                 result.push_back(match);
             }
         }
@@ -300,9 +298,7 @@ TEST (SFM, TriangulationSimple) {
     EXPECT_LT(cv::norm(d), eps);
 }
 
-TEST (MATCHING, Test2View) {
-
-    return;
+TEST (SFM, FmatrixMatchFiltering) {
 
     using namespace cv;
 
@@ -327,39 +323,48 @@ TEST (MATCHING, Test2View) {
         good_matches[i] = knn_matches[i][0];
     }
 
-    std::cout << "filtering points..." << std::endl;
+    std::cout << "filtering matches GMS..." << std::endl;
+    std::vector<DMatch> good_matches_gms;
+    phg::filterMatchesGMS(good_matches, keypoints1, keypoints2, img1.size(), img2.size(), good_matches_gms);
+
+    std::cout << "filtering matches F..." << std::endl;
+    std::vector<DMatch> good_matches_gms_plus_f;
+    std::vector<DMatch> good_matches_f;
+    double threshold_px = 3;
     {
-        std::vector<DMatch> tmp;
-        phg::filterMatchesGMS(good_matches, keypoints1, keypoints2, img1.size(), img2.size(), tmp);
-        std::swap(tmp, good_matches);
+        std::vector<cv::Vec2d> points1, points2;
+        for (const cv::DMatch &match : good_matches) {
+            cv::Vec2f pt1 = keypoints1[match.queryIdx].pt;
+            cv::Vec2f pt2 = keypoints2[match.trainIdx].pt;
+            points1.push_back(pt1);
+            points2.push_back(pt2);
+        }
+        matrix3d F = phg::findFMatrix(points1, points2, threshold_px);
+        filterMatchesF(good_matches, keypoints1, keypoints2, F, good_matches_f, threshold_px);
     }
-
-    std::vector<cv::Vec2d> points1, points2_correct;
-    for (const cv::DMatch &match : good_matches) {
-        cv::Vec2f pt1 = keypoints1[match.queryIdx].pt;
-        cv::Vec2f pt2 = keypoints2[match.trainIdx].pt;
-        points1.push_back(pt1);
-        points2_correct.push_back(pt2);
-    }
-
-    drawMatches(img1, img2, keypoints1, keypoints2, good_matches, "data/debug/test_sfm/matches.jpg");
-
-    auto F = phg::findFMatrix(points1, points2_correct);
     {
-        std::vector<DMatch> tmp;
-        filterMatchesF(good_matches, keypoints1, keypoints2, F, tmp);
-        std::swap(tmp, good_matches);
+        std::vector<cv::Vec2d> points1, points2;
+        for (const cv::DMatch &match : good_matches_gms) {
+            cv::Vec2f pt1 = keypoints1[match.queryIdx].pt;
+            cv::Vec2f pt2 = keypoints2[match.trainIdx].pt;
+            points1.push_back(pt1);
+            points2.push_back(pt2);
+        }
+        matrix3d F = phg::findFMatrix(points1, points2, threshold_px);
+        filterMatchesF(good_matches_gms, keypoints1, keypoints2, F, good_matches_gms_plus_f, threshold_px);
     }
-    drawMatches(img1, img2, keypoints1, keypoints2, good_matches, "data/debug/test_sfm/matchesF.jpg");
 
-//    std::cout << "finding F matrix..." << std::endl;
-//    cv::Matx33d F = phg::findFMatrix(points1, points2);
-//    std::cout << F << std::endl;
-//
-//    std::cout << "finding camera matrices..." << std::endl;
-//    cv::Matx34d P1, P2;
-//    phg::decomposeFMatrix(P1, P2, F);
-//
-//    std::cout << "P1: " << P1 << std::endl;
-//    std::cout << "P2: " << P2 << std::endl;
+    drawMatches(img1, img2, keypoints1, keypoints2, good_matches_gms, "data/debug/test_sfm/matches_GMS.jpg");
+    drawMatches(img1, img2, keypoints1, keypoints2, good_matches_f, "data/debug/test_sfm/matches_F.jpg");
+    drawMatches(img1, img2, keypoints1, keypoints2, good_matches_gms_plus_f, "data/debug/test_sfm/matches_GMS_plus_F.jpg");
+
+    std::cout << "n matches gms: " << good_matches_gms.size() << std::endl;
+    std::cout << "n matches F: " << good_matches_f.size() << std::endl;
+    std::cout << "n matches gms + F: " << good_matches_gms_plus_f.size() << std::endl;
+
+    EXPECT_GT(good_matches_gms_plus_f.size(), 0.5 * good_matches_gms.size());
+    EXPECT_GT(good_matches_f.size(), 0.5 * good_matches_gms.size());
+
+    EXPECT_GT(good_matches_f.size(), 0.5 * good_matches_gms_plus_f.size());
+    EXPECT_GT(good_matches_gms_plus_f.size(), 0.5 * good_matches_f.size());
 }
