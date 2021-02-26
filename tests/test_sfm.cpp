@@ -257,19 +257,19 @@ TEST (SFM, EmatrixDecomposeSimple) {
 
 TEST (SFM, TriangulationSimple) {
 
-    vector4d X = {0, 0, 1, 1};
+    vector4d X = {0, 0, 2, 1};
 
     matrix34d P0 = matrix34d::eye();
+    vector3d x0 = {0, 0, 1};
 
+    // P1
+    vector3d O = {2, 0, 0};
     double alpha = M_PI_4;
     double s = std::sin(alpha);
     double c = std::cos(alpha);
-
     matrix3d R = { c, 0, s,
                    0, 1, 0,
                   -s, 0, c};
-
-    vector3d O = {1, 0, 0};
     vector3d T = -R * O;
     matrix34d P1 = {
              R(0, 0), R(0, 1), R(0, 2), T[0],
@@ -277,7 +277,7 @@ TEST (SFM, TriangulationSimple) {
              R(2, 0), R(2, 1), R(2, 2), T[2]
     };
 
-    vector3d x0 = {0, 0, 1};
+    // x1
     vector3d x1 = {0, 0, 1};
 
     std::cout << "P1:\n" << P1 << std::endl;
