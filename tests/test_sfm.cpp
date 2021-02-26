@@ -12,6 +12,7 @@
 #include <phg/sfm/sfm_utils.h>
 #include <phg/sfm/defines.h>
 #include <eigen3/Eigen/SVD>
+#include <phg/sfm/triangulation.h>
 
 #include "utils/test_utils.h"
 
@@ -252,6 +253,51 @@ TEST (SFM, EmatrixDecomposeSimple) {
     EXPECT_LT(rms1, eps);
     EXPECT_LT(rms2, eps);
     EXPECT_LT(rms3, eps);
+}
+
+TEST (SFM, TriangulationSimple) {
+
+    vector4d X = {0, 0, 1, 1};
+
+    matrix34d P0 = matrix34d::eye();
+
+    double alpha = M_PI_4;
+    double s = std::sin(alpha);
+    double c = std::cos(alpha);
+
+    matrix3d R = { c, 0, s,
+                   0, 1, 0,
+                  -s, 0, c};
+
+    vector3d O = {1, 0, 0};
+    vector3d T = -R * O;
+    matrix34d P1 = {
+             R(0, 0), R(0, 1), R(0, 2), T[0],
+             R(1, 0), R(1, 1), R(1, 2), T[1],
+             R(2, 0), R(2, 1), R(2, 2), T[2]
+    };
+
+    vector3d x0 = {0, 0, 1};
+    vector3d x1 = {0, 0, 1};
+
+    std::cout << "P1:\n" << P1 << std::endl;
+    std::cout << "x2:\n" << P0 * X << std::endl;
+    std::cout << "x3:\n" << P1 * X << std::endl;
+
+    matrix34d Ps[2] = {P0, P1};
+    vector3d xs[2] = {x0, x1};
+
+    vector4d X1 = phg::triangulatePoint(Ps, xs, 2);
+    std::cout << "X1:\n" << X1 << std::endl;
+
+    EXPECT_NE(X1[3], 0);
+    X1 /= X1[3];
+
+    vector4d d = X - X1;
+    std::cout << "|X - X1| = " << cv::norm(d) << std::endl;
+
+    double eps = 1e-10;
+    EXPECT_LT(cv::norm(d), eps);
 }
 
 TEST (MATCHING, Test2View) {
