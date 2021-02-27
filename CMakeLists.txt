@@ -33,6 +33,20 @@ find_package(OpenCV 4.5.1 REQUIRED)
 #     Windows: (но рекомендуется использовать Linux)
 # Скачайте этот скрипт и следуйте инструкции - https://gist.github.com/PolarNick239/18036d942ae4b9aad9f1da756ce6c845#file-buildocv-sh-L10-L33
 
+find_package(Eigen3 3.3 REQUIRED)
+#      Linux:
+# sudo apt install libeigen3-dev
+#      Windows (чтобы удобно копировать в Git Bash консоль: выделите, нажмите Ctrl+C, в консоли нажмите Shift+Insert):
+# 1) Скачать https://gitlab.com/libeigen/eigen/-/archive/3.3.9/eigen-3.3.9.zip
+# 2) Распаковать и открыть Git Bash в папке распаковки (правый клик в проводнике -> Git Bash here)
+# 3) myDirPath=$(pwd)
+# 4) mkdir build_dir
+# 5) cd build_dir
+# 6) cmake -G "Visual Studio 16 2019" -DCMAKE_INSTALL_PREFIX="$myDirPath/install_dir" ..
+# 7) cmake --build .  --target install
+# 8) запомните папку куда была проведена установка Eigen3 - она имеет вид .../eigen-3.3.9/install_dir
+# 9) Добавьте в File->Settings->CMake options: -DEigen3_DIR=<ПОПРАВЬТЕ ЭТОТ ПУТЬ>/eigen-3.3.9/install_dir/share/eigen3/cmake
+
 set(SOURCES
         src/phg/core/calibration.cpp
         src/phg/core/calibration.h
@@ -80,6 +94,7 @@ set(SOURCES ${SOURCES} src/phg/matching/cl/bruteforce_matcher_cl.h)
 set(LIBRARIES
         libutils
         ${OpenCV_LIBS}
+        Eigen3::Eigen
         )
 
 add_library(${PROJECT_NAME} ${SOURCES})

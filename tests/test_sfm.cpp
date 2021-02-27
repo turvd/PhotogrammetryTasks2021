@@ -10,7 +10,7 @@
 #include <phg/sfm/ematrix.h>
 #include <phg/sfm/sfm_utils.h>
 #include <phg/sfm/defines.h>
-#include <eigen3/Eigen/SVD>
+#include <Eigen/SVD>
 #include <phg/sfm/triangulation.h>
 #include <phg/sfm/resection.h>
 #include <phg/utils/point_cloud_export.h>

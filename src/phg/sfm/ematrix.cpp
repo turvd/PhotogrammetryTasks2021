@@ -4,8 +4,8 @@
 #include "fmatrix.h"
 #include "triangulation.h"
 
-#include <eigen3/Eigen/SVD>
-#include <eigen3/Eigen/Dense>
+#include <Eigen/SVD>
+#include <Eigen/Dense>
 #include <iostream>
 
 namespace {
