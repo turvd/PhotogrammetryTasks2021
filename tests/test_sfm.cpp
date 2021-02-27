@@ -2,7 +2,6 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
-#include <opencv2/imgproc.hpp>
 #include <opencv2/features2d/features2d.hpp>
 
 #include <libutils/timer.h>
@@ -126,15 +125,15 @@ TEST (SFM, EpipolarDist) {
 
         pt1 = {0, 0};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {1000, 0};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {0, 1000};
         t = 1000;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
     }
 
     {
@@ -147,23 +146,23 @@ TEST (SFM, EpipolarDist) {
 
         pt1 = {0, 0};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {1, 1};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {-1, -1};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {-1, 1};
         t = std::sqrt(2);
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {10, 0};
         t = 10 / std::sqrt(2);
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
     }
 
     {
@@ -176,23 +175,23 @@ TEST (SFM, EpipolarDist) {
 
         pt1 = {0, 1};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {1, 2};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {-1, 0};
         t = 0;
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {-1, 2};
         t = std::sqrt(2);
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
 
         pt1 = {10, 1};
         t = 10 / std::sqrt(2);
-        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps);
+        TEST_EPIPOLAR_LINE(pt0, pt1, F, t, eps)
     }
 }
 
