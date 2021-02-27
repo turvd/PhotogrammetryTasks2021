@@ -13,6 +13,7 @@
 #include <phg/sfm/defines.h>
 #include <eigen3/Eigen/SVD>
 #include <phg/sfm/triangulation.h>
+#include <phg/sfm/resection.h>
 #include <phg/utils/point_cloud_export.h>
 
 #include "utils/test_utils.h"
@@ -485,4 +486,216 @@ TEST (SFM, RelativePosition2View) {
 
     std::cout << "exporting " << point_cloud.size() << " points..." << std::endl;
     phg::exportPointCloud(point_cloud, "data/debug/test_sfm/point_cloud_2_cameras.ply", point_cloud_colors);
+}
+
+namespace {
+
+    // one track corresponds to one 3d point
+    struct Track {
+        std::vector<std::pair<int, int>> img_kpt_pairs;
+    };
+
+}
+
+TEST (SFM, ReconstructNViews) {
+
+    using namespace cv;
+
+    std::vector<cv::Mat> imgs;
+    imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3023.JPG"));
+    imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3024.JPG"));
+    imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3025.JPG"));
+    imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3026.JPG"));
+    imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3027.JPG"));
+
+    std::vector<phg::Calibration> calibs;
+    for (const auto &img : imgs) {
+        calibs.push_back(phg::Calibration(img.cols, img.rows));
+    }
+
+    const int n_imgs = imgs.size();
+
+    std::cout << "detecting points..." << std::endl;
+    std::vector<std::vector<cv::KeyPoint>> keypoints(n_imgs);
+    std::vector<std::vector<int>> track_ids(n_imgs);
+    std::vector<cv::Mat> descriptors(n_imgs);
+    cv::Ptr<cv::FeatureDetector> detector = cv::SIFT::create();
+    for (int i = 0; i < (int) imgs.size(); ++i) {
+        detector->detectAndCompute(imgs[i], cv::noArray(), keypoints[i], descriptors[i]);
+        track_ids[i].resize(keypoints[i].size(), -1);
+    }
+
+    std::cout << "matching points..." << std::endl;
+    using Matches = std::vector<cv::DMatch>;
+    std::vector<std::vector<Matches>> matches(n_imgs);
+    for (int i = 0; i < n_imgs; ++i) {
+        matches[i].resize(n_imgs);
+        for (int j = 0; j < n_imgs; ++j) {
+            if (i == j) {
+                continue;
+            }
+
+            std::vector<std::vector<DMatch>> knn_matches;
+            std::cout << "flann matching..." << std::endl;
+            Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+            matcher->knnMatch( descriptors[i], descriptors[j], knn_matches, 2 );
+            std::vector<DMatch> good_matches(knn_matches.size());
+            for (int k = 0; k < (int) knn_matches.size(); ++k) {
+                good_matches[k] = knn_matches[k][0];
+            }
+
+            std::cout << "filtering matches GMS..." << std::endl;
+            std::vector<DMatch> good_matches_gms;
+            phg::filterMatchesGMS(good_matches, keypoints[i], keypoints[j], imgs[i].size(), imgs[j].size(), good_matches_gms);
+
+            matches[i][j] = good_matches_gms;
+        }
+    }
+
+    std::vector<Track> tracks;
+    std::vector<vector3d> tie_points;
+    std::vector<matrix34d> cameras(n_imgs);
+    std::vector<char> aligned(n_imgs);
+
+    // align first two cameras
+    {
+        // matches from first to second image in specified sequence
+        const Matches &good_matches_gms = matches[0][1];
+        const std::vector<cv::KeyPoint> &keypoints0 = keypoints[0];
+        const std::vector<cv::KeyPoint> &keypoints1 = keypoints[1];
+        const phg::Calibration &calib0 = calibs[0];
+        const phg::Calibration &calib1 = calibs[1];
+
+        std::vector<cv::Vec2d> points0, points1;
+        for (const cv::DMatch &match : good_matches_gms) {
+            cv::Vec2f pt1 = keypoints0[match.queryIdx].pt;
+            cv::Vec2f pt2 = keypoints1[match.trainIdx].pt;
+            points0.push_back(pt1);
+            points1.push_back(pt2);
+        }
+
+        matrix3d F = phg::findFMatrix(points0, points1);
+        matrix3d E = phg::fmatrix2ematrix(F, calib0, calib1);
+
+        matrix34d P0, P1;
+        phg::decomposeEMatrix(P0, P1, E, points0, points1, calib0, calib1);
+
+        cameras[0] = P0;
+        cameras[1] = P1;
+        aligned[0] = true;
+        aligned[1] = true;
+
+        matrix34d Ps[2] = {P0, P1};
+        for (int i = 0; i < (int) good_matches_gms.size(); ++i) {
+            vector3d ms[2] = {calib0.unproject(points0[i]), calib1.unproject(points1[i])};
+            vector4d X = phg::triangulatePoint(Ps, ms, 2);
+
+            if (X(3) == 0) {
+                std::cerr << "infinite point" << std::endl;
+                continue;
+            }
+
+            vector3d X3d{X(0) / X(3), X(1) / X(3), X(2) / X(3)};
+
+            tie_points.push_back(X3d);
+
+            Track track;
+            track.img_kpt_pairs.push_back({0, good_matches_gms[i].queryIdx});
+            track.img_kpt_pairs.push_back({1, good_matches_gms[i].trainIdx});
+            track_ids[0][good_matches_gms[i].queryIdx] = tracks.size();
+            track_ids[1][good_matches_gms[i].trainIdx] = tracks.size();
+            tracks.push_back(track);
+        }
+    }
+
+    // append remaining cameras one by one
+    for (int i_camera = 2; i_camera < n_imgs; ++i_camera) {
+
+        const std::vector<cv::KeyPoint> &keypoints0 = keypoints[i_camera];
+        const phg::Calibration &calib0 = calibs[i_camera];
+
+        std::vector<vector3d> Xs;
+        std::vector<vector2d> xs;
+        for (int i_camera_prev = 0; i_camera_prev < i_camera; ++i_camera_prev) {
+            const Matches &good_matches_gms = matches[i_camera][i_camera_prev];
+            for (const cv::DMatch &match : good_matches_gms) {
+                int track_id = track_ids[i_camera_prev][match.trainIdx];
+                if (track_id != -1) {
+                    Xs.push_back(tie_points[track_id]);
+                    cv::Vec2f pt = keypoints0[match.queryIdx].pt;
+                    xs.push_back(pt);
+                }
+            }
+        }
+
+        matrix34d P = phg::findCameraMatrix(calib0, Xs, xs);
+
+        cameras[i_camera] = P;
+        aligned[i_camera] = true;
+
+        for (int i_camera_prev = 0; i_camera_prev < i_camera; ++i_camera_prev) {
+            const std::vector<cv::KeyPoint> &keypoints1 = keypoints[i_camera_prev];
+            const phg::Calibration &calib1 = calibs[i_camera_prev];
+            const Matches &good_matches_gms = matches[i_camera][i_camera_prev];
+            for (const cv::DMatch &match : good_matches_gms) {
+                int track_id = track_ids[i_camera_prev][match.trainIdx];
+                if (track_id == -1) {
+                    matrix34d Ps[2] = {P, cameras[i_camera_prev]};
+                    cv::Vec2f pts[2] = {keypoints0[match.queryIdx].pt, keypoints1[match.trainIdx].pt};
+                    vector3d ms[2] = {calib0.unproject(pts[0]), calib1.unproject(pts[1])};
+                    vector4d X = phg::triangulatePoint(Ps, ms, 2);
+
+                    if (X(3) == 0) {
+                        std::cerr << "infinite point" << std::endl;
+                        continue;
+                    }
+
+                    vector3d X3d{X(0) / X(3), X(1) / X(3), X(2) / X(3)};
+
+                    tie_points.push_back(X3d);
+
+                    Track track;
+                    track.img_kpt_pairs.push_back({i_camera, match.queryIdx});
+                    track.img_kpt_pairs.push_back({i_camera_prev, match.trainIdx});
+                    track_ids[i_camera][match.queryIdx] = tracks.size();
+                    track_ids[i_camera_prev][match.trainIdx] = tracks.size();
+                    tracks.push_back(track);
+                } else {
+                    Track &track = tracks[track_id];
+                    track.img_kpt_pairs.push_back({i_camera, match.queryIdx});
+                    track_ids[i_camera][match.queryIdx] = track_id;
+                }
+            }
+        }
+    }
+
+    if (tie_points.size() != tracks.size()) {
+        throw std::runtime_error("tie_points.size() != tracks.size()");
+    }
+
+    std::vector<cv::Vec3b> tie_points_colors;
+    for (int i = 0; i < (int) tie_points.size(); ++i) {
+        const Track &track = tracks[i];
+        int img = track.img_kpt_pairs.front().first;
+        int kpt = track.img_kpt_pairs.front().second;
+        cv::Vec2f px = keypoints[img][kpt].pt;
+        tie_points_colors.push_back(imgs[img].at<cv::Vec3b>(px[1], px[0]));
+    }
+
+    for (int i_camera = 0; i_camera < n_imgs; ++i_camera) {
+        if (!aligned[i_camera]) {
+            std::cerr << "camera " << i_camera << " is not aligned" << std::endl;
+        }
+
+        matrix3d R;
+        vector3d O;
+        phg::decomposeUndistortedPMatrix(R, O, cameras[i_camera]);
+
+        tie_points.push_back(O);
+        tie_points_colors.push_back(cv::Vec3b(0, 0, 255));
+    }
+
+    std::cout << "exporting " << tie_points.size() << " points..." << std::endl;
+    phg::exportPointCloud(tie_points, "data/debug/test_sfm/point_cloud_N_cameras.ply", tie_points_colors);
+
 }

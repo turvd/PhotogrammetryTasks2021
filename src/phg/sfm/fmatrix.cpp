@@ -158,13 +158,9 @@ namespace {
 
             cv::Vec2d ms0[n_samples];
             cv::Vec2d ms1[n_samples];
-            std::vector<cv::Vec2d> AAA;
-            std::vector<cv::Vec2d> BBB;
             for (int i = 0; i < n_samples; ++i) {
                 ms0[i] = m0_t[sample[i]];
                 ms1[i] = m1_t[sample[i]];
-                AAA.push_back(ms0[i]);
-                BBB.push_back(ms1[i]);
             }
 
             cv::Matx33d F = estimateFMatrixDLT(ms0, ms1, n_samples);
