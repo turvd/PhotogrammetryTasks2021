@@ -462,12 +462,6 @@ TEST (SFM, RelativePosition2View) {
     vector3d O0, O1;
     phg::decomposeUndistortedPMatrix(R0, O0, P0);
     phg::decomposeUndistortedPMatrix(R1, O1, P1);
-    {
-        vector3d relative_cos_vals = relativeOrientationAngles(R0, O0, R1, O1);
-        std::cout << "relative_cos_vals: " << relative_cos_vals << std::endl;
-        vector3d relative_cos_vals_expected = {0.961669, -0.1386, -0.404852};
-        EXPECT_LT(cv::norm(relative_cos_vals - relative_cos_vals_expected), 0.05);
-    }
     transform(R0, O0);
     transform(R1, O1);
     P0 = phg::composeCameraMatrixRO(R0, O0);
@@ -479,6 +473,12 @@ TEST (SFM, RelativePosition2View) {
     std::cout << "R1:\n" << R1 << std::endl;
     std::cout << "O1: " << O1.t() << std::endl;
 
+    {
+        vector3d relative_cos_vals = relativeOrientationAngles(R0, O0, R1, O1);
+        std::cout << "relative_cos_vals: " << relative_cos_vals << std::endl;
+        vector3d relative_cos_vals_expected = {0.966827, -0.141921, 0.115634};
+        EXPECT_LT(cv::norm(relative_cos_vals - relative_cos_vals_expected), 0.05);
+    }
 
     std::cout << "exporting point cloud..." << std::endl;
     std::vector<vector3d> point_cloud;
@@ -529,6 +529,10 @@ TEST (SFM, ReconstructNViews) {
     imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3023.JPG"));
     imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3024.JPG"));
     imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3025.JPG"));
+
+    std::vector<vector3d> expected_orientations;
+    expected_orientations.push_back({0.966827, -0.141921, 0.115634});
+    expected_orientations.push_back({0.972914, -0.0489595, 0.183026});
 
     std::vector<phg::Calibration> calibs;
     for (const auto &img : imgs) {
@@ -715,7 +719,7 @@ TEST (SFM, ReconstructNViews) {
 
     for (int i_camera = 0; i_camera < n_imgs; ++i_camera) {
         if (!aligned[i_camera]) {
-            std::cerr << "camera " << i_camera << " is not aligned" << std::endl;
+            throw std::runtime_error("camera " + std::to_string(i_camera) + " is not aligned");
         }
 
         matrix3d R;
@@ -726,6 +730,18 @@ TEST (SFM, ReconstructNViews) {
         tie_points_colors.push_back(cv::Vec3b(0, 0, 255));
         tie_points.push_back(O + R * cv::Vec3d(0, 0, 1));
         tie_points_colors.push_back(cv::Vec3b(255, 0, 0));
+    }
+
+    for (int i = 1; i < n_imgs; ++i) {
+        matrix3d R0, R1;
+        vector3d O0, O1;
+        phg::decomposeUndistortedPMatrix(R0, O0, cameras[i - 1]);
+        phg::decomposeUndistortedPMatrix(R1, O1, cameras[i]);
+
+        vector3d relative_cos_vals = relativeOrientationAngles(R0, O0, R1, O1);
+        std::cout << "relative_cos_vals: " << relative_cos_vals << std::endl;
+        vector3d relative_cos_vals_expected = expected_orientations[i - 1];
+        EXPECT_LT(cv::norm(relative_cos_vals - relative_cos_vals_expected), 0.05);
     }
 
     std::cout << "exporting " << tie_points.size() << " points..." << std::endl;
