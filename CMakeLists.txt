@@ -58,6 +58,10 @@ find_package(Ceres 2.0.0 REQUIRED)
 # make -j12
 # make test
 # sudo make install
+# указать для CMake путь к ceres-solver (в дополнение к OpenCV и Eigen3):
+# File->Settings->Build, Execution, Deployment->CMake->CMake options: -DCeres_DIR=/opt/ceres-solver200
+# (стоит добавить и к Debug сборке)
+#
 #      Windows (чтобы удобно копировать в Git Bash консоль: выделите, нажмите Ctrl+C, в консоли нажмите Shift+Insert):
 #      (учитывайте что компиляция ceres-solver займет некоторое время, в теории можно ускорить это за счет многпоточности, но видимо для этого надо устанавливать ninja)
 # 1) Скачать https://github.com/ceres-solver/ceres-solver/archive/2.0.0.zip
@@ -71,8 +75,8 @@ find_package(Ceres 2.0.0 REQUIRED)
 # 8)  cmake --build . --config RelWithDebInfo
 # 9)  cmake --build . --target install --config debug
 # 10) cmake --build . --target install --config RelWithDebInfo
-#     указать для CMake путь к ceres-solver (в дополнение к OpenCV):
-#     в CLion это делается через File->Settings->Build, Execution, Deployment->CMake->CMake options: -DOpenCV_DIR=C:\lib\build_opencv -DCeres_DIR=<ПОПРАВЬТЕ ЭТОТ ПУТЬ>\ceres-solver-2.0.0\install_dir\CMake
+#     указать для CMake путь к ceres-solver (в дополнение к OpenCV и Eigen3):
+#     в CLion это делается через File->Settings->Build, Execution, Deployment->CMake->CMake options: -DCeres_DIR=<ПОПРАВЬТЕ ЭТОТ ПУТЬ>\ceres-solver-2.0.0\install_dir\CMake
 #     (стоит добавить и к Debug сборке)
 
 set(SOURCES

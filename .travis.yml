@@ -19,7 +19,7 @@ install:
 script:
   - mkdir build
   - cd build
-  - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO ..
+  - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO -DCeres_DIR=/opt/ceres-solver200 ..
   - make -j12
   - cd ..
   - ./build/test_sift
