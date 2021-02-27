@@ -36,6 +36,18 @@ inline matrix3d skew(const vector3d &m)
     return result;
 }
 
+inline matrix34d make34(const matrix3d &R, const vector3d &O)
+{
+    matrix34d result;
+    for (int i = 0; i < 9; ++i) {
+        result(i / 3, i % 3) = R(i / 3, i % 3);
+    }
+    for (int i = 0; i < 3; ++i) {
+        result(i, 3) = O(i);
+    }
+    return result;
+}
+
 template <typename EIGEN_TYPE>
 inline void copy(const matrix3d &Fcv, EIGEN_TYPE &F)
 {

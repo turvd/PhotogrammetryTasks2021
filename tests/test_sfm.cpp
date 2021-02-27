@@ -398,6 +398,20 @@ TEST (SFM, FmatrixMatchFiltering) {
     EXPECT_GT(good_matches_gms_plus_f.size(), 0.5 * good_matches_f.size());
 }
 
+namespace {
+
+    void transform(matrix3d &R, vector3d &O)
+    {
+        matrix4d H = matrix4d::diag({1, -1, -1, 1});
+        matrix3d Rinv = H.inv().get_minor<3, 3>(0, 0);
+
+        auto tmp = H * vector4d({O[0], O[1], O[2], 1.0});
+        O = {tmp[0] / tmp[3], tmp[1] / tmp[3], tmp[2] / tmp[3]};
+        R = R * Rinv;
+    }
+
+}
+
 TEST (SFM, RelativePosition2View) {
 
     using namespace cv;
@@ -448,6 +462,16 @@ TEST (SFM, RelativePosition2View) {
     vector3d O0, O1;
     phg::decomposeUndistortedPMatrix(R0, O0, P0);
     phg::decomposeUndistortedPMatrix(R1, O1, P1);
+    {
+        vector3d relative_cos_vals = relativeOrientationAngles(R0, O0, R1, O1);
+        std::cout << "relative_cos_vals: " << relative_cos_vals << std::endl;
+        vector3d relative_cos_vals_expected = {0.961669, -0.1386, -0.404852};
+        EXPECT_LT(cv::norm(relative_cos_vals - relative_cos_vals_expected), 0.05);
+    }
+    transform(R0, O0);
+    transform(R1, O1);
+    P0 = phg::composeCameraMatrixRO(R0, O0);
+    P1 = phg::composeCameraMatrixRO(R1, O1);
 
     std::cout << "Camera positions: " << std::endl;
     std::cout << "R0:\n" << R0 << std::endl;
@@ -455,10 +479,6 @@ TEST (SFM, RelativePosition2View) {
     std::cout << "R1:\n" << R1 << std::endl;
     std::cout << "O1: " << O1.t() << std::endl;
 
-    vector3d relative_cos_vals = relativeOrientationAngles(R0, O0, R1, O1);
-    std::cout << "relative_cos_vals: " << relative_cos_vals << std::endl;
-    vector3d relative_cos_vals_expected = {0.961669, -0.1386, -0.404852};
-    EXPECT_LT(cv::norm(relative_cos_vals - relative_cos_vals_expected), 0.05);
 
     std::cout << "exporting point cloud..." << std::endl;
     std::vector<vector3d> point_cloud;
@@ -509,8 +529,6 @@ TEST (SFM, ReconstructNViews) {
     imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3023.JPG"));
     imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3024.JPG"));
     imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3025.JPG"));
-    imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3026.JPG"));
-    imgs.push_back(cv::imread("data/src/test_sfm/saharov/IMG_3027.JPG"));
 
     std::vector<phg::Calibration> calibs;
     for (const auto &img : imgs) {
@@ -583,6 +601,17 @@ TEST (SFM, ReconstructNViews) {
 
         matrix34d P0, P1;
         phg::decomposeEMatrix(P0, P1, E, points0, points1, calib0, calib1);
+
+        {
+            matrix3d R0, R1;
+            vector3d O0, O1;
+            phg::decomposeUndistortedPMatrix(R0, O0, P0);
+            phg::decomposeUndistortedPMatrix(R1, O1, P1);
+            transform(R0, O0);
+            transform(R1, O1);
+            P0 = phg::composeCameraMatrixRO(R0, O0);
+            P1 = phg::composeCameraMatrixRO(R1, O1);
+        }
 
         cameras[0] = P0;
         cameras[1] = P1;

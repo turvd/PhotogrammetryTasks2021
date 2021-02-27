@@ -197,6 +197,13 @@ void phg::decomposeUndistortedPMatrix(cv::Matx33d &R, cv::Vec3d &O, const cv::Ma
     }
 }
 
-cv::Matx33d phg::composeEMatrixRT(const cv::Matx33d &R, const cv::Vec3d &T) {
+cv::Matx33d phg::composeEMatrixRT(const cv::Matx33d &R, const cv::Vec3d &T)
+{
     return skew(T) * R;
+}
+
+cv::Matx34d phg::composeCameraMatrixRO(const cv::Matx33d &R, const cv::Vec3d &O)
+{
+    vector3d T = -R * O;
+    return make34(R, T);
 }
