@@ -17,9 +17,6 @@
 
 #include "utils/test_utils.h"
 
-
-#define ENABLE_MY_SFM 0
-
 namespace {
 
     void filterMatchesF(const std::vector<cv::DMatch> &matches, const std::vector<cv::KeyPoint> keypoints_query,
@@ -115,10 +112,6 @@ EXPECT_TRUE(phg::epipolarTest(pt0, pt1, F, t + eps));
 
 TEST (SFM, EpipolarDist) {
 
-#if !ENABLE_MY_SFM
-    return;
-#endif
-
     const vector2d pt0 = {0, 0};
     const double eps = 1e-5;
 
@@ -204,10 +197,6 @@ TEST (SFM, EpipolarDist) {
 
 TEST (SFM, FmatrixSimple) {
 
-#if !ENABLE_MY_SFM
-    return;
-#endif
-
     std::vector<cv::Vec2d> pts0, pts1;
     std::srand(1);
     for (int i = 0; i < 8; ++i) {
@@ -223,10 +212,6 @@ TEST (SFM, FmatrixSimple) {
 }
 
 TEST (SFM, EmatrixSimple) {
-
-#if !ENABLE_MY_SFM
-    return;
-#endif
 
     phg::Calibration calib(360, 240);
     std::cout << "EmatrixSimple: calib: \n" << calib.K() << std::endl;
@@ -245,10 +230,6 @@ TEST (SFM, EmatrixSimple) {
 }
 
 TEST (SFM, EmatrixDecomposeSimple) {
-
-#if !ENABLE_MY_SFM
-    return;
-#endif
 
     phg::Calibration calib(360, 240);
     std::cout << "EmatrixSimple: calib: \n" << calib.K() << std::endl;
@@ -303,10 +284,6 @@ TEST (SFM, EmatrixDecomposeSimple) {
 
 TEST (SFM, TriangulationSimple) {
 
-#if !ENABLE_MY_SFM
-    return;
-#endif
-
     vector4d X = {0, 0, 2, 1};
 
     matrix34d P0 = matrix34d::eye();
@@ -351,10 +328,6 @@ TEST (SFM, TriangulationSimple) {
 }
 
 TEST (SFM, FmatrixMatchFiltering) {
-
-#if !ENABLE_MY_SFM
-    return;
-#endif
 
     using namespace cv;
 
@@ -440,10 +413,6 @@ namespace {
 }
 
 TEST (SFM, RelativePosition2View) {
-
-#if !ENABLE_MY_SFM
-    return;
-#endif
 
     using namespace cv;
 
@@ -544,10 +513,6 @@ TEST (SFM, RelativePosition2View) {
 }
 
 TEST (SFM, Resection) {
-
-#if !ENABLE_MY_SFM
-    return;
-#endif
 
     using namespace cv;
 
@@ -650,10 +615,6 @@ namespace {
 }
 
 TEST (SFM, ReconstructNViews) {
-
-#if !ENABLE_MY_SFM
-    return;
-#endif
 
     using namespace cv;
 
