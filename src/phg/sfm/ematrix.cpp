@@ -192,7 +192,9 @@ void phg::decomposeUndistortedPMatrix(cv::Matx33d &R, cv::Vec3d &O, const cv::Ma
     O(1) = O_mat(1);
     O(2) = O_mat(2);
 
-    if (cv::determinant(R) < 0) R *= -1;
+    if (cv::determinant(R) < 0) {
+        R *= -1;   
+    }
 }
 
 cv::Matx33d phg::composeEMatrixRT(const cv::Matx33d &R, const cv::Vec3d &T) {

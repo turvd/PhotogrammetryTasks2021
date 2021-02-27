@@ -480,9 +480,13 @@ TEST (SFM, RelativePosition2View) {
 
     point_cloud.push_back(O0);
     point_cloud_colors.push_back(cv::Vec3b{0, 0, 255});
+    point_cloud.push_back(O0 + R0 * cv::Vec3d(0, 0, 1));
+    point_cloud_colors.push_back(cv::Vec3b(255, 0, 0));
 
     point_cloud.push_back(O1);
     point_cloud_colors.push_back(cv::Vec3b{0, 0, 255});
+    point_cloud.push_back(O1 + R1 * cv::Vec3d(0, 0, 1));
+    point_cloud_colors.push_back(cv::Vec3b(255, 0, 0));
 
     std::cout << "exporting " << point_cloud.size() << " points..." << std::endl;
     phg::exportPointCloud(point_cloud, "data/debug/test_sfm/point_cloud_2_cameras.ply", point_cloud_colors);
@@ -650,9 +654,7 @@ TEST (SFM, ReconstructNViews) {
                         continue;
                     }
 
-                    vector3d X3d{X(0) / X(3), X(1) / X(3), X(2) / X(3)};
-
-                    tie_points.push_back(X3d);
+                    tie_points.push_back({X(0) / X(3), X(1) / X(3), X(2) / X(3)});
 
                     Track track;
                     track.img_kpt_pairs.push_back({i_camera, match.queryIdx});
@@ -693,6 +695,8 @@ TEST (SFM, ReconstructNViews) {
 
         tie_points.push_back(O);
         tie_points_colors.push_back(cv::Vec3b(0, 0, 255));
+        tie_points.push_back(O + R * cv::Vec3d(0, 0, 1));
+        tie_points_colors.push_back(cv::Vec3b(255, 0, 0));
     }
 
     std::cout << "exporting " << tie_points.size() << " points..." << std::endl;
