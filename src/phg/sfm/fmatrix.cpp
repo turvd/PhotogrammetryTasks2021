@@ -3,7 +3,7 @@
 #include "defines.h"
 
 #include <iostream>
-#include <eigen3/Eigen/SVD>
+#include <Eigen/SVD>
 #include <opencv2/calib3d.hpp>
 
 namespace {

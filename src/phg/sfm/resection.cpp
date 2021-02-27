@@ -1,6 +1,6 @@
 #include "resection.h"
 
-#include <eigen3/Eigen/SVD>
+#include <Eigen/SVD>
 #include <iostream>
 #include "sfm_utils.h"
 #include "defines.h"
