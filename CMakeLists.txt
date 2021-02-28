@@ -61,7 +61,7 @@ find_package(Ceres 2.0.0 REQUIRED)
 # make test
 # sudo make install
 # указать для CMake путь к ceres-solver (в дополнение к OpenCV и Eigen3):
-# File->Settings->Build, Execution, Deployment->CMake->CMake options: -DCeres_DIR=/opt/ceres-solver200
+# File->Settings->Build, Execution, Deployment->CMake->CMake options: -DCeres_DIR=/opt/ceres-solver200/lib/cmake/Ceres
 # (стоит добавить и к Debug сборке)
 #
 #      Windows (чтобы удобно копировать в Git Bash консоль: выделите, нажмите Ctrl+C, в консоли нажмите Shift+Insert):
