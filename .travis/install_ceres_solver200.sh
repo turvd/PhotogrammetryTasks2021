@@ -7,5 +7,5 @@ cd ceres-solver-2.0.0
 mkdir build
 cd build
 cmake -DCMAKE_INSTALL_PREFIX=/opt/ceres-solver200 ..
-make -j12
+make
 sudo make install
