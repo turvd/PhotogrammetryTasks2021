@@ -23,6 +23,13 @@
 #include "utils/test_utils.h"
 
 #define FIX_INTRINSICS_CALIBRATION 1
+#define NIMGS_LIMIT 15
+
+#define DATASET_DIR "temple47"
+#define DATASET_F   1520.4 // see temple47/README.txt about K-matrix (i.e. focal length = K11 from templeR_par.txt)
+
+//#define DATASET_DIR "herzjesu25"
+//#define DATASET_F   2761.5 // see herzjesu25/K.txt
 
 
 namespace {
@@ -96,14 +103,14 @@ TEST (SFM, ReconstructNViews) {
     std::vector<cv::Mat> imgs;
     std::vector<std::string> imgs_labels;
     {
-        std::ifstream in("data/src/datasets/temple47/ordered_filenames.txt");
+        std::ifstream in(std::string("data/src/datasets/") + DATASET_DIR + "/ordered_filenames.txt");
         size_t nimages = 0;
         in >> nimages;
         std::cout << nimages << " images" << std::endl;
         for (int i = 0; i < nimages; ++i) {
             std::string img_name;
             in >> img_name;
-            std::string img_path = std::string("data/src/datasets/temple47/") + img_name;
+            std::string img_path = std::string("data/src/datasets/") + DATASET_DIR + "/" + img_name;
             cv::Mat img = cv::imread(img_path);
             if (img.empty()) {
                 throw std::runtime_error("Can't read image: " + to_string(img_path));
@@ -112,19 +119,19 @@ TEST (SFM, ReconstructNViews) {
             imgs_labels.push_back(img_name);
         }
         // Если хочется попробовать другие камеры - можно начать с конца:
-        std::reverse(imgs.begin(), imgs.end());
-        std::reverse(imgs_labels.begin(), imgs_labels.end());
+//        std::reverse(imgs.begin(), imgs.end());
+//        std::reverse(imgs_labels.begin(), imgs_labels.end());
     }
 
     phg::Calibration calib(imgs[0].cols, imgs[0].rows);
     if (FIX_INTRINSICS_CALIBRATION) {
-        calib.f_ = 1520.4; // see temple47/README.txt about K-matrix (i.e. focal length = K11 from templeR_par.txt)
+        calib.f_ = DATASET_F;
     }
     for (const auto &img : imgs) {
         rassert(img.cols == imgs[0].cols && img.rows == imgs[0].rows, 34125412512512);
     }
 
-    const int n_imgs = 5;//imgs.size();
+    const int n_imgs = std::min(imgs.size(), (size_t) NIMGS_LIMIT);
 
     std::cout << "detecting points..." << std::endl;
     std::vector<std::vector<cv::KeyPoint>> keypoints(n_imgs);
@@ -326,22 +333,23 @@ public:
     {}
 
     template <typename T>
-    bool operator()(const T* camera_extrinsics, // положение камеры:   [6] = {rotation[3], translation[3]} (разное для всех кадров, т.к. каждая фотография со своего ракурса)
+    bool operator()(const T* camera_extrinsics, // положение камеры:   [6] = {translation[3], rotation[3]} (разное для всех кадров, т.к. каждая фотография со своего ракурса)
                     const T* camera_intrinsics, // внутренние калибровочные параметры камеры: [5] = {k1, k2, f, cx, cy} (одни и те же для всех кадров, т.к. снято на одну и ту же камеру)
-                    const T* point,             // 3D точка: [3]  = {x, y, z}
+                    const T* point_global,      // 3D точка: [3]  = {x, y, z}
                     T* residuals) const {       // невязка:  [2]  = {dx, dy}
+        T point_local[3];
+        // translation[3] - сдвиг в локальную систему координат камеры
+        const T *camera_translation = camera_extrinsics + 0;
+        for (int d = 0; d < 3; ++d) {
+            point_local[d] = point_global[d] - camera_translation[d];
+        }
+
         // rotation[3] - angle-axis rotation, поворачиваем точку point->p (чтобы перейти в локальную систему координат камеры)
         // подробнее см. https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation
         // (P.S. у камеры всмысле вращения три степени свободы)
         T p[3];
-        const T *camera_angle_axis_rotation = camera_extrinsics; camera_extrinsics += 3;
-        ceres::AngleAxisRotatePoint(camera_angle_axis_rotation, point, p);
-
-        // translation[3] - сдвиг в локальную систему координат камеры
-        const T *camera_translation = camera_extrinsics; camera_extrinsics += 3;
-        p[0] += camera_translation[0];
-        p[1] += camera_translation[1];
-        p[2] += camera_translation[2];
+        const T *camera_angle_axis_rotation = camera_extrinsics + 3;
+        ceres::AngleAxisRotatePoint(camera_angle_axis_rotation, point_local, p);
 
         // Проецируем точку на плоскость матрицы (т.е. плоскость Z=1)
         T x = p[0] / p[2];
@@ -357,14 +365,13 @@ public:
 //        y = y * (1.0 + k1 * r2 + k2 * r4);
 
         // Переводим из координат плоскости матрицы (Z=1) в пиксели (т.е. на плоскость Z=фокальная длина)
-        // camera[8] = f
         const T focal = camera_intrinsics[0]; camera_intrinsics += 1;
         x = focal * x;
         y = focal * y;
 
         // Из координат когда точка (0, 0) - центр оптической оси
         // Переходим в координаты когда точка (0, 0) - левый верхний угол картинки
-        // camera[9, 10] = cx, cy - координаты центра оптической оси (обычно это центр картинки, но часто он чуть смещен)
+        // cx, cy - координаты центра оптической оси (обычно это центр картинки, но часто он чуть смещен)
         const T *camera_cx_cy = camera_intrinsics; camera_intrinsics += 2;
         x += camera_cx_cy[0];
         y += camera_cx_cy[1];
@@ -405,18 +412,23 @@ void runBA(std::vector<vector3d> &tie_points,
 
     const int CAMERA_EXTRINSICS_NPARAMS = 6;
 
-    // внешние калибровочные параметры камеры для каждого кадра: [6] = {rotation[3], translation[3]}
+    // внешние калибровочные параметры камеры для каждого кадра: [6] = {translation[3], rotation[3]}
     std::vector<double> cameras_extrinsics(CAMERA_EXTRINSICS_NPARAMS * ncameras, 0.0);
     for (size_t camera_id = 0; camera_id < ncameras; ++camera_id) {
         matrix3d R;
         vector3d O;
+        // Декомпозируем на матрицу поворота (локальная система камеры -> глобальная система координат мира)
+        //                + координаты камеры в мире (т.е. ее точка отсчета)
         phg::decomposeUndistortedPMatrix(R, O, cameras[camera_id]);
 
         double* camera_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
-        double* rotation_angle_axis = camera_extrinsics + 0;
-        double* translation = camera_extrinsics + 3;
+        double* translation = camera_extrinsics + 0;
+        double* rotation_angle_axis = camera_extrinsics + 3;
 
+        // Нам нужна матрица поворота в обратную сторону (глобальная система координат мира -> локальная система камеры), т.к. мы проецируем (переходим из мира в локальную систему камеры)
+        R = R.inv();
         ceres::RotationMatrixToAngleAxis(&(R(0, 0)), rotation_angle_axis);
+
         for (int d = 0; d < 3; ++d) {
             translation[d] = O[d];
         }
@@ -429,6 +441,9 @@ void runBA(std::vector<vector3d> &tie_points,
     double inliers_mse = 0.0;
     size_t inliers = 0;
     size_t nprojections = 0;
+    std::vector<double> cameras_inliers_mse(ncameras, 0.0);
+    std::vector<size_t> cameras_inliers(ncameras, 0);
+    std::vector<size_t> cameras_nprojections(ncameras, 0);
 
     std::vector<ceres::CostFunction*> reprojection_residuals;
 
@@ -462,8 +477,11 @@ void runBA(std::vector<vector3d> &tie_points,
                 if (error2 < 3.0 * sigma) {
                     inliers_mse += error2;
                     ++inliers;
+                    cameras_inliers_mse[camera_id] += error2;
+                    ++cameras_inliers[camera_id];
                 }
                 ++nprojections;
+                ++cameras_nprojections[camera_id];
             }
 
             problem.AddResidualBlock(keypoint_reprojection_residual, new ceres::HuberLoss(3.0 * sigma),
@@ -472,7 +490,13 @@ void runBA(std::vector<vector3d> &tie_points,
                                      point3d_params);
         }
     }
-    std::cout << "After BA projections: " << to_percent(inliers, nprojections) << "% inliers with MSE=" << (inliers_mse / inliers) << std::endl;
+    std::cout << "Before BA projections: " << to_percent(inliers, nprojections) << "% inliers with MSE=" << (inliers_mse / inliers) << std::endl;
+    for (size_t camera_id = 0; camera_id < ncameras; ++camera_id) {
+        size_t ninls = cameras_inliers[camera_id];
+        size_t nproj = cameras_nprojections[camera_id];
+        std::cout << "    Camera #" << camera_id << " projections: " << to_percent(ninls, nproj) << "% inliers "
+        << "(" << ninls << "/" << nproj << ") with MSE=" << (cameras_inliers_mse[camera_id] / ninls) << std::endl;
+    }
 
     if (FIX_INTRINSICS_CALIBRATION) {
         // Полностью фиксируем внутренние калибровочные параметры камеры (общие для всех кадров)
@@ -483,12 +507,6 @@ void runBA(std::vector<vector3d> &tie_points,
         size_t camera_id = 0;
         double* camera0_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
         problem.SetParameterBlockConstant(camera0_extrinsics);
-    }
-    {
-        // Фиксируем координаты второй камеры, т.е. translation[3] (чтобы фиксировать масштаб)
-        size_t camera_id = 1;
-        double* camera1_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
-        problem.SetParameterization(camera1_extrinsics, new ceres::SubsetParameterization(6, {3, 4, 5}));
     }
 
     ceres::Solver::Options options;
@@ -504,6 +522,10 @@ void runBA(std::vector<vector3d> &tie_points,
     inliers_mse = 0.0;
     inliers = 0;
     nprojections = 0;
+    cameras_inliers_mse = std::vector<double>(ncameras, 0.0);
+    cameras_inliers = std::vector<size_t>(ncameras, 0);
+    cameras_nprojections = std::vector<size_t>(ncameras, 0);
+
     size_t next_loss_k = 0;
     // Создаем невязки для всех проекций 3D точек в камеры (т.е. для всех наблюдений этих ключевых точек)
     for (size_t i = 0; i < tie_points.size(); ++i) {
@@ -529,12 +551,21 @@ void runBA(std::vector<vector3d> &tie_points,
                 if (error2 < 3.0 * sigma) {
                     inliers_mse += error2;
                     ++inliers;
+                    cameras_inliers_mse[camera_id] += error2;
+                    ++cameras_inliers[camera_id];
                 }
                 ++nprojections;
+                ++cameras_nprojections[camera_id];
             }
         }
     }
     std::cout << "After BA projections: " << to_percent(inliers, nprojections) << "% inliers with MSE=" << (inliers_mse / inliers) << std::endl;
+    for (size_t camera_id = 0; camera_id < ncameras; ++camera_id) {
+        size_t ninls = cameras_inliers[camera_id];
+        size_t nproj = cameras_nprojections[camera_id];
+        std::cout << "    Camera #" << camera_id << " projections: " << to_percent(ninls, nproj) << "% inliers "
+        << "(" << ninls << "/" << nproj << ") with MSE=" << (cameras_inliers_mse[camera_id] / ninls) << std::endl;
+    }
 
     std::cout << "After BA ";
     printCamera(camera_intrinsics);
@@ -548,18 +579,21 @@ void runBA(std::vector<vector3d> &tie_points,
         vector3d O;
 
         phg::decomposeUndistortedPMatrix(R, O, cameras[camera_id]);
-        std::cout << "Camera #" << camera_id << " translation: " << O << " -> ";
+        std::cout << "Camera #" << camera_id << " center: " << O << " -> ";
 
         double* camera_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
-        double* rotation_angle_axis = camera_extrinsics + 0;
-        double* translation = camera_extrinsics + 3;
+        double* translation = camera_extrinsics + 0;
+        double* rotation_angle_axis = camera_extrinsics + 3;
 
         ceres::AngleAxisToRotationMatrix(rotation_angle_axis, &(R(0, 0)));
+        // не забываем что в BA у нас была матрица поворота из мира в камеру, а в остальном sfm мы использовали матрицу из камеры в мир
+        R = R.inv();
+
         for (int d = 0; d < 3; ++d) {
             O[d] = translation[d];
         }
-        std::cout << O << std::endl;
 
+        std::cout << O << std::endl;
         cameras[camera_id] = phg::composeCameraMatrixRO(R, O);
     }
 }
