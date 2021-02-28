@@ -80,7 +80,7 @@ namespace {
     }
 
 
-    cv::Matx34d estimateCameraMatrixRANSAC(const phg::Calibration &calib, const std::vector<cv::Vec3d> &X, const std::vector<cv::Vec2d> &x)
+    cv::Matx34d estimateCameraMatrixRANSAC(const phg::Calibration &calib, const std::vector<cv::Vec3d> &X, const std::vector<cv::Vec2d> &x, bool verbose)
     {
         if (X.size() != x.size()) {
             throw std::runtime_error("estimateCameraMatrixRANSAC: X.size() != x.size()");
@@ -129,7 +129,7 @@ namespace {
                 best_support = support;
                 best_P = P;
 
-                std::cout << "estimateCameraMatrixRANSAC : support: " << best_support << "/" << n_points << std::endl;
+                if (verbose) std::cout << "estimateCameraMatrixRANSAC : support: " << best_support << "/" << n_points << std::endl;
 
                 if (best_support == n_points) {
                     break;
@@ -137,7 +137,7 @@ namespace {
             }
         }
 
-        std::cout << "estimateCameraMatrixRANSAC : best support: " << best_support << "/" << n_points << std::endl;
+        if (verbose) std::cout << "estimateCameraMatrixRANSAC : best support: " << best_support << "/" << n_points << std::endl;
 
         if (best_support == 0) {
             throw std::runtime_error("estimateCameraMatrixRANSAC : failed to estimate camera matrix");
@@ -149,6 +149,6 @@ namespace {
 
 }
 
-cv::Matx34d phg::findCameraMatrix(const Calibration &calib, const std::vector <cv::Vec3d> &X, const std::vector <cv::Vec2d> &x) {
-    return estimateCameraMatrixRANSAC(calib, X, x);
+cv::Matx34d phg::findCameraMatrix(const Calibration &calib, const std::vector <cv::Vec3d> &X, const std::vector <cv::Vec2d> &x, bool verbose) {
+    return estimateCameraMatrixRANSAC(calib, X, x, verbose);
 }

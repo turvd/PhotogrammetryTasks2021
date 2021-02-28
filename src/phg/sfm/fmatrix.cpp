@@ -71,7 +71,7 @@ namespace {
     }
 
     // get transform matrix so that after transform centroid of points will be zero and Root Mean Square distance from centroid will be sqrt(2)
-    cv::Matx33d getNormalizeTransform(const std::vector<cv::Vec2d> &m)
+    cv::Matx33d getNormalizeTransform(const std::vector<cv::Vec2d> &m, bool verbose=true)
     {
         cv::Vec2d centroid(0.0, 0.0);
 
@@ -98,7 +98,9 @@ namespace {
 
         double s = std::sqrt(2) / rms;
 
-        std::cout << "NORMALIZE TRANSFORM: centroid = " << centroid << ", scale = " << s << std::endl;
+        if (verbose) {
+            std::cout << "NORMALIZE TRANSFORM: centroid = " << centroid << ", scale = " << s << std::endl;
+        }
 
         cv::Matx33d T(s, 0.0, -s*centroid[0],
                       0.0, s, -s*centroid[1],
@@ -118,7 +120,7 @@ namespace {
         return cv::Vec2d(tmp[0] / tmp[2], tmp[1] / tmp[2]);
     }
 
-    cv::Matx33d estimateFMatrixRANSAC(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, double threshold_px)
+    cv::Matx33d estimateFMatrixRANSAC(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, double threshold_px, bool verbose=true)
     {
         if (m0.size() != m1.size()) {
             throw std::runtime_error("estimateFMatrixRANSAC: m0.size() != m1.size()");
@@ -126,8 +128,8 @@ namespace {
 
         const int n_matches = m0.size();
 
-        cv::Matx33d TN0 = getNormalizeTransform(m0);
-        cv::Matx33d TN1 = getNormalizeTransform(m1);
+        cv::Matx33d TN0 = getNormalizeTransform(m0, verbose);
+        cv::Matx33d TN1 = getNormalizeTransform(m1, verbose);
 
         std::vector<cv::Vec2d> m0_t(n_matches);
         std::vector<cv::Vec2d> m1_t(n_matches);
@@ -138,8 +140,8 @@ namespace {
 
         {
 //             check log: centroid should become close to zero, scale close to 1
-            getNormalizeTransform(m0_t);
-            getNormalizeTransform(m1_t);
+            getNormalizeTransform(m0_t, verbose);
+            getNormalizeTransform(m1_t, verbose);
         }
 
         // https://en.wikipedia.org/wiki/Random_sample_consensus#Parameters
@@ -181,8 +183,10 @@ namespace {
                 best_support = support;
                 best_F = F;
 
-                std::cout << "estimateFMatrixRANSAC : support: " << best_support << "/" << n_matches << std::endl;
-                infoF(F);
+                if (verbose) {
+                    std::cout << "estimateFMatrixRANSAC : support: " << best_support << "/" << n_matches << std::endl;
+                    infoF(F);
+                }
 
                 if (best_support == n_matches) {
                     break;
@@ -190,7 +194,9 @@ namespace {
             }
         }
 
-        std::cout << "estimateFMatrixRANSAC : best support: " << best_support << "/" << n_matches << std::endl;
+        if (verbose) {
+            std::cout << "estimateFMatrixRANSAC : best support: " << best_support << "/" << n_matches << std::endl;
+        }
 
         if (best_support == 0) {
             throw std::runtime_error("estimateFMatrixRANSAC : failed to estimate fundamental matrix");
@@ -201,8 +207,8 @@ namespace {
 
 }
 
-cv::Matx33d phg::findFMatrix(const std::vector <cv::Vec2d> &m0, const std::vector <cv::Vec2d> &m1, double threshold_px) {
-    return estimateFMatrixRANSAC(m0, m1, threshold_px);
+cv::Matx33d phg::findFMatrix(const std::vector <cv::Vec2d> &m0, const std::vector <cv::Vec2d> &m1, double threshold_px, bool verbose) {
+    return estimateFMatrixRANSAC(m0, m1, threshold_px, verbose);
 }
 
 cv::Matx33d phg::findFMatrixCV(const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, double threshold_px) {

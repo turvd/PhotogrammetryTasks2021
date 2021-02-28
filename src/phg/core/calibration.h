@@ -16,8 +16,6 @@ namespace phg {
         int width() const;
         int height() const;
 
-    private:
-
         double f_;
         double cx_;
         double cy_;

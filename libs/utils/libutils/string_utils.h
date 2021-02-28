@@ -13,6 +13,13 @@ std::string to_string(T value)
     return ss.str();
 }
 
+template <typename T>
+std::string to_percent(T part, T total) {
+    if (total == 0)
+        return "0";
+    return to_string((int) std::floor(part * 100.0 / total + 0.5));
+}
+
 std::vector<std::string> split(const std::string &string, const std::string &separator, bool keep_empty_parts = true);
 std::string join(const std::vector<std::string> &tokens, const std::string &separator);
 std::istream &getline(std::istream &is, std::string &str);

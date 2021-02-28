@@ -146,12 +146,14 @@ set(TEST_LIBRARIES
         gtest_main
         )
 
-add_executable(test_sift            tests/test_sift.cpp ${TEST_SOURCES})
-add_executable(test_matching        tests/test_matching.cpp ${TEST_SOURCES})
-add_executable(test_sfm             tests/test_sfm.cpp ${TEST_SOURCES})
-add_executable(test_ceres_solver    tests/test_ceres_solver.cpp ${TEST_SOURCES})
+add_executable(test_sift            tests/test_sift.cpp             ${TEST_SOURCES})
+add_executable(test_matching        tests/test_matching.cpp         ${TEST_SOURCES})
+add_executable(test_sfm             tests/test_sfm.cpp              ${TEST_SOURCES})
+add_executable(test_ceres_solver    tests/test_ceres_solver.cpp     ${TEST_SOURCES})
+add_executable(test_sfm_ba          tests/test_sfm_ba.cpp           ${TEST_SOURCES})
 
 target_link_libraries(test_sift         ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
 target_link_libraries(test_matching     ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
 target_link_libraries(test_sfm          ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
 target_link_libraries(test_ceres_solver ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
+target_link_libraries(test_sfm_ba       ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})

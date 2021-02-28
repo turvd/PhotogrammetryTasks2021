@@ -98,7 +98,7 @@ namespace {
 // Это дополнительное ограничение позволяет разложить существенную матрицу с точностью до 4 решений, вместо произвольного проективного преобразования (см. Hartley & Zisserman p.258)
 // Обычно мы можем использовать одну общую калибровку, более менее верную для большого количества реальных камер и с ее помощью выполнить
 // первичное разложение существенной матрицы (а из него, взаимное расположение камер) для последующего уточнения методом нелинейной оптимизации
-void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &Ecv, const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, const Calibration &calib0, const Calibration &calib1)
+void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &Ecv, const std::vector<cv::Vec2d> &m0, const std::vector<cv::Vec2d> &m1, const Calibration &calib0, const Calibration &calib1, bool verbose)
 {
     if (m0.size() != m1.size()) {
         throw std::runtime_error("decomposeEMatrix : m0.size() != m1.size()");
@@ -122,9 +122,11 @@ void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &
     if (U.determinant() < 0) U = -U;
     if (V.determinant() < 0) V = -V;
 
-    std::cout << "U:\n" << U << std::endl;
-    std::cout << "s:\n" << s << std::endl;
-    std::cout << "V:\n" << V << std::endl;
+    if (verbose) {
+        std::cout << "U:\n" << U << std::endl;
+        std::cout << "s:\n" << s << std::endl;
+        std::cout << "V:\n" << V << std::endl;
+    }
 
     mat W(3, 3);
     W << 0, -1, 0, 1, 0, 0, 0, 0, 1;
@@ -132,19 +134,25 @@ void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &
     mat Z(3, 3);
     Z << 0, 1, 0, -1, 0, 0, 0, 0, 0;
 
-    std::cout << "W:\n" << W << std::endl;
-    std::cout << "Z:\n" << Z << std::endl;
+    if (verbose) {
+        std::cout << "W:\n" << W << std::endl;
+        std::cout << "Z:\n" << Z << std::endl;
+    }
 
     mat R0 = U * W * V.transpose();
     mat R1 = U * W.transpose() * V.transpose();
 
-    std::cout << "R0:\n" << R0 << std::endl;
-    std::cout << "R1:\n" << R1 << std::endl;
+    if (verbose) {
+        std::cout << "R0:\n" << R0 << std::endl;
+        std::cout << "R1:\n" << R1 << std::endl;
+    }
 
     vec t0 = U.col(2);
     vec t1 = -t0;
 
-    std::cout << "t0:\n" << t0 << std::endl;
+    if (verbose) {
+        std::cout << "t0:\n" << t0 << std::endl;
+    }
 
     P0 = matrix34d::eye();
 
@@ -165,7 +173,9 @@ void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &
                 ++count;
             }
         }
-        std::cout << "decomposeEMatrix: count: " << count << std::endl;
+        if (verbose) {
+            std::cout << "decomposeEMatrix: count: " << count << std::endl;
+        }
         if (count > best_count) {
             best_count = count;
             best_idx = i;
@@ -178,9 +188,11 @@ void phg::decomposeEMatrix(cv::Matx34d &P0, cv::Matx34d &P1, const cv::Matx33d &
 
     P1 = P1s[best_idx];
 
-    std::cout << "best idx: " << best_idx << std::endl;
-    std::cout << "P0: \n" << P0 << std::endl;
-    std::cout << "P1: \n" << P1 << std::endl;
+    if (verbose) {
+        std::cout << "best idx: " << best_idx << std::endl;
+        std::cout << "P0: \n" << P0 << std::endl;
+        std::cout << "P1: \n" << P1 << std::endl;
+    }
 }
 
 void phg::decomposeUndistortedPMatrix(cv::Matx33d &R, cv::Vec3d &O, const cv::Matx34d &P)
