@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/features2d/features2d.hpp>
 
@@ -22,14 +23,20 @@
 
 #include "utils/test_utils.h"
 
-#define FIX_INTRINSICS_CALIBRATION 1
-#define NIMGS_LIMIT 15
+#define NIMGS_LIMIT                  100 // сколько фотографий обрабатывать (чтобы ускорить экспериментирование)
+#define INTRINSICS_CALIBRATION_MIN_IMGS 5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длинну и т.п.)
 
-#define DATASET_DIR "temple47"
-#define DATASET_F   1520.4 // see temple47/README.txt about K-matrix (i.e. focal length = K11 from templeR_par.txt)
+#define DATASET_DIR                  "temple47"
+#define DATASET_F                    1520.4 // see temple47/README.txt about K-matrix (i.e. focal length = K11 from templeR_par.txt)
+#define DATASET_DOWNSCALE            1
 
-//#define DATASET_DIR "herzjesu25"
-//#define DATASET_F   2761.5 // see herzjesu25/K.txt
+//#define DATASET_DIR                  "herzjesu25"
+//#define DATASET_F                    2761.5 // see herzjesu25/K.txt
+//#define DATASET_DOWNSCALE            1
+
+//#define DATASET_DIR                  "saharov32"
+//#define DATASET_F                    6342.1
+//#define DATASET_DOWNSCALE            4
 
 
 namespace {
@@ -58,15 +65,6 @@ namespace {
         cos_vals[2] = b.dot(c);
 
         return cos_vals;
-    }
-
-    void transform(matrix3d &R, vector3d &O) {
-        matrix4d H = matrix4d::diag({1, -1, -1, 1});
-        matrix3d Rinv = H.inv().get_minor<3, 3>(0, 0);
-
-        auto tmp = H * vector4d({O[0], O[1], O[2], 1.0});
-        O = {tmp[0] / tmp[3], tmp[1] / tmp[3], tmp[2] / tmp[3]};
-        R = R * Rinv;
     }
 
     // one track corresponds to one 3d point
@@ -112,6 +110,14 @@ TEST (SFM, ReconstructNViews) {
             in >> img_name;
             std::string img_path = std::string("data/src/datasets/") + DATASET_DIR + "/" + img_name;
             cv::Mat img = cv::imread(img_path);
+
+            int downscale = DATASET_DOWNSCALE;
+            while (downscale > 1) {
+                cv::pyrDown(img, img);
+                rassert(downscale % 2 == 0, 1249219412940115);
+                downscale /= 2;
+            }
+
             if (img.empty()) {
                 throw std::runtime_error("Can't read image: " + to_string(img_path));
             }
@@ -124,14 +130,12 @@ TEST (SFM, ReconstructNViews) {
     }
 
     phg::Calibration calib(imgs[0].cols, imgs[0].rows);
-    if (FIX_INTRINSICS_CALIBRATION) {
-        calib.f_ = DATASET_F;
-    }
+    calib.f_ = DATASET_F / DATASET_DOWNSCALE;
     for (const auto &img : imgs) {
         rassert(img.cols == imgs[0].cols && img.rows == imgs[0].rows, 34125412512512);
     }
 
-    const int n_imgs = std::min(imgs.size(), (size_t) NIMGS_LIMIT);
+    const size_t n_imgs = std::min(imgs.size(), (size_t) NIMGS_LIMIT);
 
     std::cout << "detecting points..." << std::endl;
     std::vector<std::vector<cv::KeyPoint>> keypoints(n_imgs);
@@ -146,6 +150,7 @@ TEST (SFM, ReconstructNViews) {
     std::cout << "matching points..." << std::endl;
     using Matches = std::vector<cv::DMatch>;
     std::vector<std::vector<Matches>> matches(n_imgs);
+    size_t ndone = 0;
     #pragma omp parallel for
     for (int i = 0; i < n_imgs; ++i) {
         matches[i].resize(n_imgs);
@@ -168,7 +173,10 @@ TEST (SFM, ReconstructNViews) {
             int inliers = phg::filterMatchesGMS(good_matches, keypoints[i], keypoints[j], imgs[i].size(), imgs[j].size(), good_matches_gms, false);
             #pragma omp critical
             {
-                std::cout << "Cameras " << i << "-" << j << " (" << imgs_labels[i] << "-" << imgs_labels[j] << "): " << inliers << " matches" << std::endl;
+                ++ndone;
+                if (inliers > 0) {
+                    std::cout << to_percent(ndone, n_imgs * (n_imgs - 1)) + "% - Cameras " << i << "-" << j << " (" << imgs_labels[i] << "-" << imgs_labels[j] << "): " << inliers << " matches" << std::endl;
+                }
             }
 
             matches[i][j] = good_matches_gms;
@@ -204,17 +212,6 @@ TEST (SFM, ReconstructNViews) {
         matrix34d P0, P1;
         phg::decomposeEMatrix(P0, P1, E, points0, points1, calib0, calib1, false);
 
-        {
-            matrix3d R0, R1;
-            vector3d O0, O1;
-            phg::decomposeUndistortedPMatrix(R0, O0, P0);
-            phg::decomposeUndistortedPMatrix(R1, O1, P1);
-            transform(R0, O0);
-            transform(R1, O1);
-            P0 = phg::composeCameraMatrixRO(R0, O0);
-            P1 = phg::composeCameraMatrixRO(R1, O1);
-        }
-
         cameras[0] = P0;
         cameras[1] = P1;
         aligned[0] = true;
@@ -247,11 +244,11 @@ TEST (SFM, ReconstructNViews) {
         std::vector<vector3d> tie_points_and_cameras;
         std::vector<cv::Vec3b> tie_points_colors;
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
-        phg::exportPointCloud(tie_points_and_cameras, "data/debug/test_sfm_ba/point_cloud_" + to_string(ncameras) + "_cameras.ply", tie_points_colors);
+        phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras.ply", tie_points_colors);
 
         runBA(tie_points, tracks, keypoints, cameras, ncameras, calib);
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
-        phg::exportPointCloud(tie_points_and_cameras, "data/debug/test_sfm_ba/point_cloud_" + to_string(ncameras) + "_cameras_ba.ply", tie_points_colors);
+        phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras_ba.ply", tie_points_colors);
     }
 
     // append remaining cameras one by one
@@ -319,11 +316,11 @@ TEST (SFM, ReconstructNViews) {
         std::vector<vector3d> tie_points_and_cameras;
         std::vector<cv::Vec3b> tie_points_colors;
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
-        phg::exportPointCloud(tie_points_and_cameras, "data/debug/test_sfm_ba/point_cloud_" + to_string(ncameras) + "_cameras.ply", tie_points_colors);
+        phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras.ply", tie_points_colors);
 
         runBA(tie_points, tracks, keypoints, cameras, ncameras, calib);
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
-        phg::exportPointCloud(tie_points_and_cameras, "data/debug/test_sfm_ba/point_cloud_" + to_string(ncameras) + "_cameras_ba.ply", tie_points_colors);
+        phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras_ba.ply", tie_points_colors);
     }
 }
 
@@ -425,9 +422,13 @@ void runBA(std::vector<vector3d> &tie_points,
         double* translation = camera_extrinsics + 0;
         double* rotation_angle_axis = camera_extrinsics + 3;
 
-        // Нам нужна матрица поворота в обратную сторону (глобальная система координат мира -> локальная система камеры), т.к. мы проецируем (переходим из мира в локальную систему камеры)
-        R = R.inv();
-        ceres::RotationMatrixToAngleAxis(&(R(0, 0)), rotation_angle_axis);
+        // AngleAxisToRotationMatrix оперирует R матрицей у которой подряд идут колонки а не строчки:
+        // > Conversions between 3x3 rotation matrix (in column major order) and
+        // > axis-angle rotation representations. Templated for use with
+        // > autodifferentiation.
+        // поэтому нужно транспонировать:
+        matrix3d Rt = R.t();
+        ceres::RotationMatrixToAngleAxis(&(Rt(0, 0)), rotation_angle_axis);
 
         for (int d = 0; d < 3; ++d) {
             translation[d] = O[d];
@@ -498,15 +499,22 @@ void runBA(std::vector<vector3d> &tie_points,
         << "(" << ninls << "/" << nproj << ") with MSE=" << (cameras_inliers_mse[camera_id] / ninls) << std::endl;
     }
 
-    if (FIX_INTRINSICS_CALIBRATION) {
-        // Полностью фиксируем внутренние калибровочные параметры камеры (общие для всех кадров)
+    if (ncameras < INTRINSICS_CALIBRATION_MIN_IMGS) {
+        // Полностью фиксируем внутренние калибровочные параметры камеры, т.к. 
         problem.SetParameterBlockConstant(camera_intrinsics);
     }
+
     {
         // Полностью фиксируем положение первой камеры (чтобы не уползло облако точек)
         size_t camera_id = 0;
         double* camera0_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
         problem.SetParameterBlockConstant(camera0_extrinsics);
+    }
+    {
+        // Фиксируем координаты второй камеры, т.е. translation[3] (чтобы фиксировать масштаб)
+        size_t camera_id = 1;
+        double* camera1_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
+        problem.SetParameterization(camera1_extrinsics, new ceres::SubsetParameterization(6, {0, 1, 2}));
     }
 
     ceres::Solver::Options options;
@@ -585,9 +593,14 @@ void runBA(std::vector<vector3d> &tie_points,
         double* translation = camera_extrinsics + 0;
         double* rotation_angle_axis = camera_extrinsics + 3;
 
-        ceres::AngleAxisToRotationMatrix(rotation_angle_axis, &(R(0, 0)));
-        // не забываем что в BA у нас была матрица поворота из мира в камеру, а в остальном sfm мы использовали матрицу из камеры в мир
-        R = R.inv();
+        matrix3d Rt;
+        ceres::AngleAxisToRotationMatrix(rotation_angle_axis, &(Rt(0, 0)));
+        // AngleAxisToRotationMatrix оперирует R матрицей у которой подряд идут колонки а не строчки:
+        // > Conversions between 3x3 rotation matrix (in column major order) and
+        // > axis-angle rotation representations. Templated for use with
+        // > autodifferentiation.
+        // поэтому нужно транспонировать:
+        R = Rt.t();
 
         for (int d = 0; d < 3; ++d) {
             O[d] = translation[d];
@@ -631,7 +644,7 @@ void generateTiePointsCloud(const std::vector<vector3d> tie_points,
 
         tie_points_and_cameras.push_back(O);
         tie_points_colors.push_back(cv::Vec3b(0, 0, 255));
-        tie_points_and_cameras.push_back(O + R * cv::Vec3d(0, 0, 1));
+        tie_points_and_cameras.push_back(O + R.t() * cv::Vec3d(0, 0, 1));
         tie_points_colors.push_back(cv::Vec3b(255, 0, 0));
     }
 }
