@@ -32,8 +32,8 @@ int phg::Calibration::height() const {
 
 cv::Vec3d phg::Calibration::project(const cv::Vec3d &point) const
 {
-    double x = point[0] / point[2];
-    double y = point[1] / point[2];
+    double x = f_ * point[0] / point[2];
+    double y = f_ * point[1] / point[2];
 
     double r2 = x * x + y * y;
     double r4 = r2 * r2;
@@ -41,10 +41,7 @@ cv::Vec3d phg::Calibration::project(const cv::Vec3d &point) const
     x = x * (1.0 + k1_ * r2 + k2_ * r4);
     y = y * (1.0 + k1_ * r2 + k2_ * r4);
 
-	x *= f_;
-	y *= f_;
-
-	x += cx_ + width_ * 0.5;
+    x += cx_ + width_ * 0.5;
     y += cy_ + height_ * 0.5;
 
     return cv::Vec3d(x, y, 1.0);
@@ -54,15 +51,15 @@ cv::Vec3d phg::Calibration::unproject(const cv::Vec2d &pixel) const
 {
 	double x = pixel[0] - cx_ - width_ * 0.5;
 	double y = pixel[1] - cy_ - height_ * 0.5;
-	
-	x /= f_;
-	y /= f_;
 
 	double r2 = x * x + y * y;
 	double r4 = r2 * r2;
 
 	x = x / (1.0 + k1_ * r2 + k2_ * r4); // TODO: почему строго говоря это - не симметричная формула формуле из project? (но лишь приближение)
 	y = y / (1.0 + k1_ * r2 + k2_ * r4);
+
+    x /= f_;
+    y /= f_;
 
 	return cv::Vec3d(x, y, 1.0);
 }
