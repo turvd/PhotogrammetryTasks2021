@@ -19,6 +19,8 @@ namespace phg {
         double f_;
         double cx_;
         double cy_;
+        double k1_;
+        double k2_;
         int width_;
         int height_;
     };

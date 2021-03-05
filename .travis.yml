@@ -22,7 +22,5 @@ script:
   - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO -DCeres_DIR=/opt/ceres-solver200 ..
   - make -j12
   - cd ..
-  - ./build/test_sift
-  - ./build/test_matching
-  - ./build/test_sfm
   - ./build/test_ceres_solver
+  - ./build/test_sfm_ba

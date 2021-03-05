@@ -21,22 +21,31 @@
 #include <ceres/rotation.h>
 #include <ceres/ceres.h>
 
-#include "utils/test_utils.h"
+#define NIMGS_LIMIT                           100 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
+#define INTRINSICS_CALIBRATION_MIN_IMGS       5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длинну и т.п.) - из соображений что "пока камер мало - наблюдений может быть недостаточно чтобы не сойтись к ложной внутренней модели камеры"
 
-#define NIMGS_LIMIT                  100 // сколько фотографий обрабатывать (чтобы ускорить экспериментирование)
-#define INTRINSICS_CALIBRATION_MIN_IMGS 5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длинну и т.п.)
+#define ENABLE_INSTRINSICS_K1_K2              1
+#define INTRINSIC_K1_K2_MIN_IMGS              10 // начиная со скольки камер начинать оптимизировать k1, k2
 
-#define DATASET_DIR                  "temple47"
-#define DATASET_F                    1520.4 // see temple47/README.txt about K-matrix (i.e. focal length = K11 from templeR_par.txt)
-#define DATASET_DOWNSCALE            1
+#define ENABLE_OUTLIERS_FILTRATION_3_SIGMA    1
+#define ENABLE_OUTLIERS_FILTRATION_COLINEAR   1
+#define ENABLE_OUTLIERS_FILTRATION_NEGATIVE_Z 1
+
+//________________________________________________________________________________
+// Datasets:
+
+//#define DATASET_DIR                  "temple47"
+//#define DATASET_DOWNSCALE            1
+//#define DATASET_F                    (1520.4 / DATASET_DOWNSCALE) // see temple47/README.txt about K-matrix (i.e. focal length = K11 from templeR_par.txt)
 
 //#define DATASET_DIR                  "herzjesu25"
-//#define DATASET_F                    2761.5 // see herzjesu25/K.txt
-//#define DATASET_DOWNSCALE            1
+//#define DATASET_DOWNSCALE            2 // для ускорения SIFT
+//#define DATASET_F                    (2761.5 / DATASET_DOWNSCALE) // see herzjesu25/K.txt
 
-//#define DATASET_DIR                  "saharov32"
-//#define DATASET_F                    6342.1
-//#define DATASET_DOWNSCALE            4
+#define DATASET_DIR                  "saharov32"
+#define DATASET_DOWNSCALE            4 // для ускорения SIFT
+#define DATASET_F                    (6342.1 / DATASET_DOWNSCALE)
+//________________________________________________________________________________
 
 
 namespace {
@@ -68,7 +77,14 @@ namespace {
     }
 
     // one track corresponds to one 3d point
-    struct Track {
+    class Track {
+    public:
+        Track()
+        {
+            disabled = false;
+        }
+
+        bool disabled;
         std::vector<std::pair<int, int>> img_kpt_pairs;
     };
 
@@ -111,6 +127,10 @@ TEST (SFM, ReconstructNViews) {
             std::string img_path = std::string("data/src/datasets/") + DATASET_DIR + "/" + img_name;
             cv::Mat img = cv::imread(img_path);
 
+            if (img.empty()) {
+                throw std::runtime_error("Can't read image: " + to_string(img_path));
+            }
+
             int downscale = DATASET_DOWNSCALE;
             while (downscale > 1) {
                 cv::pyrDown(img, img);
@@ -118,19 +138,13 @@ TEST (SFM, ReconstructNViews) {
                 downscale /= 2;
             }
 
-            if (img.empty()) {
-                throw std::runtime_error("Can't read image: " + to_string(img_path));
-            }
             imgs.push_back(img);
             imgs_labels.push_back(img_name);
         }
-        // Если хочется попробовать другие камеры - можно начать с конца:
-//        std::reverse(imgs.begin(), imgs.end());
-//        std::reverse(imgs_labels.begin(), imgs_labels.end());
     }
 
     phg::Calibration calib(imgs[0].cols, imgs[0].rows);
-    calib.f_ = DATASET_F / DATASET_DOWNSCALE;
+    calib.f_ = DATASET_F;
     for (const auto &img : imgs) {
         rassert(img.cols == imgs[0].cols && img.rows == imgs[0].rows, 34125412512512);
     }
@@ -259,12 +273,13 @@ TEST (SFM, ReconstructNViews) {
 
         std::vector<vector3d> Xs;
         std::vector<vector2d> xs;
-        int neighbours_limit = 2;
-        for (int i_camera_prev = i_camera - neighbours_limit; i_camera_prev < i_camera; ++i_camera_prev) {
+        for (int i_camera_prev = 0; i_camera_prev < i_camera; ++i_camera_prev) {
             const Matches &good_matches_gms = matches[i_camera][i_camera_prev];
             for (const cv::DMatch &match : good_matches_gms) {
                 int track_id = track_ids[i_camera_prev][match.trainIdx];
                 if (track_id != -1) {
+                    if (tracks[track_id].disabled)
+                        continue;
                     Xs.push_back(tie_points[track_id]);
                     cv::Vec2f pt = keypoints0[match.queryIdx].pt;
                     xs.push_back(pt);
@@ -278,7 +293,7 @@ TEST (SFM, ReconstructNViews) {
         cameras[i_camera] = P;
         aligned[i_camera] = true;
 
-        for (int i_camera_prev = i_camera - neighbours_limit; i_camera_prev < i_camera; ++i_camera_prev) {
+        for (int i_camera_prev = 0; i_camera_prev < i_camera; ++i_camera_prev) {
             const std::vector<cv::KeyPoint> &keypoints1 = keypoints[i_camera_prev];
             const phg::Calibration &calib1 = calib;
             const Matches &good_matches_gms = matches[i_camera][i_camera_prev];
@@ -304,6 +319,8 @@ TEST (SFM, ReconstructNViews) {
                     track_ids[i_camera_prev][match.trainIdx] = tracks.size();
                     tracks.push_back(track);
                 } else {
+                    if (tracks[track_id].disabled)
+                        continue;
                     Track &track = tracks[track_id];
                     track.img_kpt_pairs.push_back({i_camera, match.queryIdx});
                     track_ids[i_camera][match.queryIdx] = track_id;
@@ -352,24 +369,26 @@ public:
         T x = p[0] / p[2];
         T y = p[1] / p[2];
 
+#if ENABLE_INSTRINSICS_K1_K2
         // k1, k2 - коэффициенты радиального искажения (radial distortion)
-        const T *camera_k1_k2 = camera_intrinsics; camera_intrinsics += 2;
-//        T k1 = camera_k1_k2[0];
-//        T k2 = camera_k1_k2[1];
-//        T r2 = x * x + y * y;
-//        T r4 = x * x + y * y;
-//        x = x * (1.0 + k1 * r2 + k2 * r4);
-//        y = y * (1.0 + k1 * r2 + k2 * r4);
+        const T *camera_k1_k2 = camera_intrinsics + 0;
+        T k1 = camera_k1_k2[0];
+        T k2 = camera_k1_k2[1];
+        T r2 = x * x + y * y;
+        T r4 = r2 * r2;
+        x = x * (1.0 + k1 * r2 + k2 * r4);
+        y = y * (1.0 + k1 * r2 + k2 * r4);
+#endif
 
         // Переводим из координат плоскости матрицы (Z=1) в пиксели (т.е. на плоскость Z=фокальная длина)
-        const T focal = camera_intrinsics[0]; camera_intrinsics += 1;
+        const T focal = camera_intrinsics[2];
         x = focal * x;
         y = focal * y;
 
         // Из координат когда точка (0, 0) - центр оптической оси
         // Переходим в координаты когда точка (0, 0) - левый верхний угол картинки
         // cx, cy - координаты центра оптической оси (обычно это центр картинки, но часто он чуть смещен)
-        const T *camera_cx_cy = camera_intrinsics; camera_intrinsics += 2;
+        const T *camera_cx_cy = camera_intrinsics + 3;
         x += camera_cx_cy[0];
         y += camera_cx_cy[1];
 
@@ -402,8 +421,12 @@ void runBA(std::vector<vector3d> &tie_points,
     // Формулируем задачу
     ceres::Problem problem;
 
+    ASSERT_NEAR(calib.f_ , DATASET_F, 0.2 * DATASET_F);
+    ASSERT_NEAR(calib.cx_, 0.0, 0.3 * calib.width());
+    ASSERT_NEAR(calib.cy_, 0.0, 0.3 * calib.height());
+
     // внутренние калибровочные параметры камеры: [5] = {k1, k2, f, cx, cy}
-    double camera_intrinsics[5] = {0.0, 0.0, calib.f_, calib.cx_ + 0.5 * calib.width(), calib.cy_ + 0.5 * calib.height()};
+    double camera_intrinsics[5] = {calib.k1_, calib.k2_, calib.f_, calib.cx_ + 0.5 * calib.width(), calib.cy_ + 0.5 * calib.height()};
     std::cout << "Before BA ";
     printCamera(camera_intrinsics);
 
@@ -422,10 +445,9 @@ void runBA(std::vector<vector3d> &tie_points,
         double* translation = camera_extrinsics + 0;
         double* rotation_angle_axis = camera_extrinsics + 3;
 
-        // AngleAxisToRotationMatrix оперирует R матрицей у которой подряд идут колонки а не строчки:
-        // > Conversions between 3x3 rotation matrix (in column major order) and
-        // > axis-angle rotation representations. Templated for use with
-        // > autodifferentiation.
+        // AngleAxisToRotationMatrix оперирует R матрицей у которой в памяти подряд идут колонки а не строчки:
+        // > Conversions between 3x3 rotation matrix (in >>>column major order<<<) and
+        // > axis-angle rotation representations. Templated for use with autodifferentiation.
         // поэтому нужно транспонировать:
         matrix3d Rt = R.t();
         ceres::RotationMatrixToAngleAxis(&(Rt(0, 0)), rotation_angle_axis);
@@ -447,6 +469,7 @@ void runBA(std::vector<vector3d> &tie_points,
     std::vector<size_t> cameras_nprojections(ncameras, 0);
 
     std::vector<ceres::CostFunction*> reprojection_residuals;
+    std::vector<ceres::CostFunction*> reprojection_residuals_for_deletion;
 
     // Создаем невязки для всех проекций 3D точек в камеры (т.е. для всех наблюдений этих ключевых точек)
     for (size_t i = 0; i < tie_points.size(); ++i) {
@@ -485,10 +508,14 @@ void runBA(std::vector<vector3d> &tie_points,
                 ++cameras_nprojections[camera_id];
             }
 
-            problem.AddResidualBlock(keypoint_reprojection_residual, new ceres::HuberLoss(3.0 * sigma),
-                                     camera_extrinsics,
-                                     camera_intrinsics,
-                                     point3d_params);
+            if (!track.disabled) {
+                problem.AddResidualBlock(keypoint_reprojection_residual, new ceres::HuberLoss(3.0 * sigma),
+                                         camera_extrinsics,
+                                         camera_intrinsics,
+                                         point3d_params);
+            } else {
+                reprojection_residuals_for_deletion.push_back(keypoint_reprojection_residual); // если мы не передали невязку в ceres-solver, то за его lifetime ответственны все еще мы
+            }
         }
     }
     std::cout << "Before BA projections: " << to_percent(inliers, nprojections) << "% inliers with MSE=" << (inliers_mse / inliers) << std::endl;
@@ -502,6 +529,10 @@ void runBA(std::vector<vector3d> &tie_points,
     if (ncameras < INTRINSICS_CALIBRATION_MIN_IMGS) {
         // Полностью фиксируем внутренние калибровочные параметры камеры, т.к. 
         problem.SetParameterBlockConstant(camera_intrinsics);
+    } else {
+        if (ncameras < INTRINSIC_K1_K2_MIN_IMGS) {
+            problem.SetParameterization(camera_intrinsics, new ceres::SubsetParameterization(5, {0, 1}));
+        }
     }
 
     {
@@ -527,60 +558,18 @@ void runBA(std::vector<vector3d> &tie_points,
         std::cout << summary.BriefReport() << std::endl;
     }
 
-    inliers_mse = 0.0;
-    inliers = 0;
-    nprojections = 0;
-    cameras_inliers_mse = std::vector<double>(ncameras, 0.0);
-    cameras_inliers = std::vector<size_t>(ncameras, 0);
-    cameras_nprojections = std::vector<size_t>(ncameras, 0);
-
-    size_t next_loss_k = 0;
-    // Создаем невязки для всех проекций 3D точек в камеры (т.е. для всех наблюдений этих ключевых точек)
-    for (size_t i = 0; i < tie_points.size(); ++i) {
-        const Track &track = tracks[i];
-        for (size_t ci = 0; ci < track.img_kpt_pairs.size(); ++ci) {
-            int camera_id = track.img_kpt_pairs[ci].first;
-
-            ceres::CostFunction* keypoint_reprojection_residual = reprojection_residuals[next_loss_k++];
-
-            double* camera_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
-
-            // блоки параметров для 3D точек аллоцировать не обязательно, т.к. мы можем их оптимизировать напрямую в tie_points массиве
-            double* point3d_params = &(tie_points[i][0]);
-
-            {
-                const double* params[3];
-                double residual[2] = {-1.0};
-                params[0] = camera_extrinsics;
-                params[1] = camera_intrinsics;
-                params[2] = point3d_params;
-                keypoint_reprojection_residual->Evaluate(params, residual, NULL);
-                double error2 = residual[0] * residual[0] + residual[1] * residual[1];
-                if (error2 < 3.0 * sigma) {
-                    inliers_mse += error2;
-                    ++inliers;
-                    cameras_inliers_mse[camera_id] += error2;
-                    ++cameras_inliers[camera_id];
-                }
-                ++nprojections;
-                ++cameras_nprojections[camera_id];
-            }
-        }
-    }
-    std::cout << "After BA projections: " << to_percent(inliers, nprojections) << "% inliers with MSE=" << (inliers_mse / inliers) << std::endl;
-    for (size_t camera_id = 0; camera_id < ncameras; ++camera_id) {
-        size_t ninls = cameras_inliers[camera_id];
-        size_t nproj = cameras_nprojections[camera_id];
-        std::cout << "    Camera #" << camera_id << " projections: " << to_percent(ninls, nproj) << "% inliers "
-        << "(" << ninls << "/" << nproj << ") with MSE=" << (cameras_inliers_mse[camera_id] / ninls) << std::endl;
-    }
-
     std::cout << "After BA ";
     printCamera(camera_intrinsics);
 
+    calib.k1_ = camera_intrinsics[0];
+    calib.k2_ = camera_intrinsics[1];
     calib.f_ = camera_intrinsics[2];
     calib.cx_ = camera_intrinsics[3] - 0.5 * calib.width();
     calib.cy_ = camera_intrinsics[4] - 0.5 * calib.height();
+
+    ASSERT_NEAR(calib.f_ , DATASET_F, 0.2 * DATASET_F);
+    ASSERT_NEAR(calib.cx_, 0.0, 0.3 * calib.width());
+    ASSERT_NEAR(calib.cy_, 0.0, 0.3 * calib.height());
 
     for (size_t camera_id = 0; camera_id < ncameras; ++camera_id) {
         matrix3d R;
@@ -595,10 +584,9 @@ void runBA(std::vector<vector3d> &tie_points,
 
         matrix3d Rt;
         ceres::AngleAxisToRotationMatrix(rotation_angle_axis, &(Rt(0, 0)));
-        // AngleAxisToRotationMatrix оперирует R матрицей у которой подряд идут колонки а не строчки:
-        // > Conversions between 3x3 rotation matrix (in column major order) and
-        // > axis-angle rotation representations. Templated for use with
-        // > autodifferentiation.
+        // AngleAxisToRotationMatrix оперирует R матрицей у которой в памяти подряд идут колонки а не строчки:
+        // > Conversions between 3x3 rotation matrix (in >>>column major order<<<) and
+        // > axis-angle rotation representations. Templated for use with autodifferentiation.
         // поэтому нужно транспонировать:
         R = Rt.t();
 
@@ -608,6 +596,103 @@ void runBA(std::vector<vector3d> &tie_points,
 
         std::cout << O << std::endl;
         cameras[camera_id] = phg::composeCameraMatrixRO(R, O);
+    }
+
+    inliers_mse = 0.0;
+    inliers = 0;
+    nprojections = 0;
+    cameras_inliers_mse = std::vector<double>(ncameras, 0.0);
+    cameras_inliers = std::vector<size_t>(ncameras, 0);
+    cameras_nprojections = std::vector<size_t>(ncameras, 0);
+
+    size_t n_old_outliers = 0;
+    size_t n_new_outliers = 0;
+
+    size_t next_loss_k = 0;
+    for (size_t i = 0; i < tie_points.size(); ++i) {
+        Track &track = tracks[i];
+        bool should_be_disabled = false;
+
+        vector3d camera0_origin;
+        vector3d track_point = tie_points[i];
+
+        for (size_t ci = 0; ci < track.img_kpt_pairs.size(); ++ci) {
+            int camera_id = track.img_kpt_pairs[ci].first;
+
+            ceres::CostFunction* keypoint_reprojection_residual = reprojection_residuals[next_loss_k++];
+
+            double* camera_extrinsics = cameras_extrinsics.data() + CAMERA_EXTRINSICS_NPARAMS * camera_id;
+
+            double* point3d_params = &(tie_points[i][0]);
+
+            matrix3d R; vector3d camera_origin;
+            phg::decomposeUndistortedPMatrix(R, camera_origin, cameras[camera_id]);
+            if (ci == 0) {
+                camera0_origin = camera_origin;
+            } else {
+                vector3d ray0 = cv::normalize(track_point - camera0_origin);
+                vector3d ray1 = cv::normalize(track_point - camera_origin);
+                double rays_cos = fabs(ray0.dot(ray1));
+//                if (rays_cos > 0.99) { // 0.99 = cos(8.1 degrees)
+                if (rays_cos > 0.999) { // 0.999 = cos(2.5 degrees)
+                    // почти параллельны
+                    if (ENABLE_OUTLIERS_FILTRATION_COLINEAR)
+                        should_be_disabled = true;
+                }
+            }
+            {
+                vector3d track_in_camera = R * (track_point - camera_origin);
+                double z = track_in_camera[2];
+                if (z < 0.0) {
+                    // за спиной камеры
+                    if (ENABLE_OUTLIERS_FILTRATION_NEGATIVE_Z)
+                        should_be_disabled = true;
+                }
+            }
+
+            {
+                const double* params[3];
+                double residual[2] = {-1.0};
+                params[0] = camera_extrinsics;
+                params[1] = camera_intrinsics;
+                params[2] = point3d_params;
+                keypoint_reprojection_residual->Evaluate(params, residual, NULL);
+                double error2 = residual[0] * residual[0] + residual[1] * residual[1];
+                if (error2 < 3.0 * sigma) {
+                    inliers_mse += error2;
+                    ++inliers;
+                    cameras_inliers_mse[camera_id] += error2;
+                    ++cameras_inliers[camera_id];
+                } else {
+                    if (ENABLE_OUTLIERS_FILTRATION_3_SIGMA)
+                        should_be_disabled = true;
+                }
+                ++nprojections;
+                ++cameras_nprojections[camera_id];
+            }
+        }
+
+        if (should_be_disabled && !track.disabled) {
+            track.disabled = true;
+            ++n_new_outliers;
+        } else if (track.disabled) {
+            ++n_old_outliers;
+        }
+    }
+    std::cout << "After BA tie poits: " << to_percent(n_old_outliers, tie_points.size()) << "% old + " << to_percent(n_new_outliers, tie_points.size()) << "% new = " << to_percent(n_old_outliers + n_new_outliers, tie_points.size()) << "% total outliers" << std::endl;
+    std::cout << "After BA projections: " << to_percent(inliers, nprojections) << "% inliers with MSE=" << (inliers_mse / inliers) << std::endl;
+    for (size_t camera_id = 0; camera_id < ncameras; ++camera_id) {
+        size_t ninls = cameras_inliers[camera_id];
+        size_t nproj = cameras_nprojections[camera_id];
+        double mse = (cameras_inliers_mse[camera_id] / ninls);
+        std::cout << "    Camera #" << camera_id << " projections: " << to_percent(ninls, nproj) << "% inliers "
+                  << "(" << ninls << "/" << nproj << ") with MSE=" << mse << std::endl;
+        ASSERT_GT(ninls, 0.25 * nproj);
+        ASSERT_LT(mse, 0.75);
+    }
+
+    for (auto ptr : reprojection_residuals_for_deletion) {
+        delete ptr; // т.к. мы не отдали указатель в ceres-solver - надо самим его деаллоцировать
     }
 }
 
@@ -623,16 +708,21 @@ void generateTiePointsCloud(const std::vector<vector3d> tie_points,
 {
     rassert(tie_points.size() == tracks.size(), 24152151251241);
 
+    tie_points_and_cameras.clear();
     tie_points_colors.clear();
+
     for (int i = 0; i < (int) tie_points.size(); ++i) {
         const Track &track = tracks[i];
+        if (track.disabled)
+            continue;
+
         int img = track.img_kpt_pairs.front().first;
         int kpt = track.img_kpt_pairs.front().second;
         cv::Vec2f px = keypoints[img][kpt].pt;
+        tie_points_and_cameras.push_back(tie_points[i]);
         tie_points_colors.push_back(imgs[img].at<cv::Vec3b>(px[1], px[0]));
     }
 
-    tie_points_and_cameras = tie_points;
     for (int i_camera = 0; i_camera < ncameras; ++i_camera) {
         if (!aligned[i_camera]) {
             throw std::runtime_error("camera " + std::to_string(i_camera) + " is not aligned");
