@@ -2,7 +2,7 @@
 
 [Остальные задания](https://github.com/PhotogrammetryCourse/PhotogrammetryTasks2021/).
 
-# Задание 4. Bundle Adjustment
+# Задание 4. SFM. Ceres Solver и Bundle Adjustment.
 
 [![Build Status](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021.svg?branch=task04)](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021)
 
@@ -16,7 +16,7 @@
  - Создайте PR
  - Затем дождавшись отработку Travis CI (около 15 минут) - скопируйте в описание PR вывод исполнения вашей программы **на CI** (через редактирование описания PR или комментарием, главное используйте пожалуйста спойлер для компактности)
 
-**Дедлайн**: 19:55 15 марта
+**Дедлайн**: 19:55 16 марта
 
 Задание 4.1.
 =========
