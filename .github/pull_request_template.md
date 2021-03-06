@@ -1,14 +1,14 @@
 // Убедитесь что название PR соответствует шаблону:
-// Task03 <Имя> <Фамилия> <Аффиляция>
+// Task04 <Имя> <Фамилия> <Аффиляция>
 // Если вы слушатель от CS клуба и у вас никнейм по которому вас не тривиально сопоставить с именем и фамилией, то назовите PR по этому шаблону:
-// Task03 <Имя> <Фамилия> <Никнейм> <Аффиляция>
+// Task04 <Имя> <Фамилия> <Никнейм> <Аффиляция>
 
-// Проверьте что обе ветки PR - task03 (отправляемая из вашего форкнутого репозитория и та в которую вы отправляете PR)
+// Проверьте что обе ветки PR - task04 (отправляемая из вашего форкнутого репозитория и та в которую вы отправляете PR)
 
-# Перечислите идеи и коротко обозначьте мысли которые у вас возникали по мере выполнения задания, в частности попробуйте ответить на вопросы:
-1) TODO
+# Перечислите идеи и коротко обозначьте мысли которые у вас возникали по мере выполнения задания
+1) ...
 
-7) Если есть, фидбек по заданию: какая часть больше всего понравилась, где-то слишком сложно/просто (что именно), где-то слишком мало ссылок и тд.
+Если есть - фидбек по заданию.
 
 
 // Создайте PR.
@@ -18,21 +18,9 @@
 <details><summary>Travis CI</summary><p>
 
 <pre>
-$ ./build/test_sift
-$ ./build/test_matching
-$ ./build/test_sfm
-Running main() from /home/travis/build/PhotogrammetryCourse/PhotogrammetryTasks2021/libs/3rdparty/libgtest/googletest/src/gtest_main.cc
-[==========] Running 22 tests from 1 test suite.
-[----------] Global test environment set-up.
-[----------] 22 tests from SIFT
-[ RUN      ] SIFT.MovedTheSameImage
-[ORB_OCV] Points detected: 500 -> 500 (in 0.021269 sec)
+$ ./build/test_ceres_solver
 ...
-[       OK ] SIFT.HerzJesu19RotateM40 (7730 ms)
-[----------] 22 tests from SIFT (12918 ms total)
-[----------] Global test environment tear-down
-[==========] 22 tests from 1 test suite ran. (12918 ms total)
-[  PASSED  ] 22 tests.
+$ ./build/test_sfm_ba
 ...
 </pre>
 
