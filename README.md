@@ -41,6 +41,8 @@
 
 ![MeshLab](/.github/screens/meshlab.png?raw=true)
 
+P.S. если у вас случается ошибка ```unknown file: error: SEH exception with code 0xc0000005 thrown in the test body.``` - вероятнее всего это обычный segfault (например выход за пределы массива), но почему то связка CLion + MSVC/Win это не обрабатывают корректно и не дают возможности увидеть строчку падения даже под отладчиком. Рекомендуется использовать Linux.
+
 Задание 4.4.
 =========
 
