@@ -38,6 +38,7 @@ cv::Vec3d phg::Calibration::project(const cv::Vec3d &point) const
     double r2 = x * x + y * y;
     double r4 = r2 * r2;
 
+    // TODO 11: добавьте учет радиальных искажений (k1_, k2_)
     x = x * (1.0 + k1_ * r2 + k2_ * r4);
     y = y * (1.0 + k1_ * r2 + k2_ * r4);
 
@@ -49,17 +50,18 @@ cv::Vec3d phg::Calibration::project(const cv::Vec3d &point) const
 
 cv::Vec3d phg::Calibration::unproject(const cv::Vec2d &pixel) const
 {
-	double x = pixel[0] - cx_ - width_ * 0.5;
-	double y = pixel[1] - cy_ - height_ * 0.5;
+    double x = pixel[0] - cx_ - width_ * 0.5;
+    double y = pixel[1] - cy_ - height_ * 0.5;
 
-	double r2 = x * x + y * y;
-	double r4 = r2 * r2;
+    double r2 = x * x + y * y;
+    double r4 = r2 * r2;
 
-	x = x / (1.0 + k1_ * r2 + k2_ * r4); // TODO: почему строго говоря это - не симметричная формула формуле из project? (но лишь приближение)
-	y = y / (1.0 + k1_ * r2 + k2_ * r4);
+    // TODO 12: когда реализуете - подумайте: почему строго говоря это - не симметричная формула формуле из project? (но лишь приближение)
+    x = x / (1.0 + k1_ * r2 + k2_ * r4);
+    y = y / (1.0 + k1_ * r2 + k2_ * r4);
 
     x /= f_;
     y /= f_;
 
-	return cv::Vec3d(x, y, 1.0);
+    return cv::Vec3d(x, y, 1.0);
 }

@@ -21,12 +21,17 @@
 #include <ceres/rotation.h>
 #include <ceres/ceres.h>
 
+// TODO 13 включите Bundle Adjustment (но из любопытства посмотрите как ведет себя реконструкция без BA например для saharov32 без BA)
+#define ENABLE_BA                             1
+
+// TODO когда заработает при малом количестве фотографий - увеличьте это ограничение до 100 чтобы попробовать обработать все фотографии (если же успешно будут отрабаывать только N фотографий - отправьте PR выставив здесь это N)
 #define NIMGS_LIMIT                           100 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
 #define INTRINSICS_CALIBRATION_MIN_IMGS       5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длинну и т.п.) - из соображений что "пока камер мало - наблюдений может быть недостаточно чтобы не сойтись к ложной внутренней модели камеры"
 
-#define ENABLE_INSTRINSICS_K1_K2              1
-#define INTRINSIC_K1_K2_MIN_IMGS              10 // начиная со скольки камер начинать оптимизировать k1, k2
+#define ENABLE_INSTRINSICS_K1_K2              1 // TODO учитывать ли радиальную дисторсию - коэффициенты k1, k2 попробуйте с ним и и без saharov32, заметна ли разница?
+#define INTRINSIC_K1_K2_MIN_IMGS              7 // начиная со скольки камер начинать оптимизировать k1, k2
 
+// TODO попробуйте повыключать эти фильтрации выбросов, насколько изменился результат?
 #define ENABLE_OUTLIERS_FILTRATION_3_SIGMA    1
 #define ENABLE_OUTLIERS_FILTRATION_COLINEAR   1
 #define ENABLE_OUTLIERS_FILTRATION_NEGATIVE_Z 1
@@ -34,17 +39,35 @@
 //________________________________________________________________________________
 // Datasets:
 
+// достаточно чтобы у вас работало на этом датасете, тестирование на Travis CI тоже ведется на нем
+//#define DATASET_DIR                  "saharov32"
+//#define DATASET_DOWNSCALE            1 // картинки уже уменьшены в 4 раза (оригинальные вы можете скачать по ссылке из saharov32/LINK.txt)
+//#define DATASET_F                    (1585.5 / DATASET_DOWNSCALE)
+
+// но если любопытно - для экспериментов предлагаются еще дополнительные датасеты
+// скачайте их фотографии в папку data/src/datasets/DATASETNAME/ по ссылке из файла LINK.txt в папке датасета:
+
+// у меня получилось выравнять и saharov32 и herzjesu25:
+#define DATASET_DIR                  "herzjesu25"
+#define DATASET_DOWNSCALE            2 // для ускорения SIFT
+#define DATASET_F                    (2761.5 / DATASET_DOWNSCALE) // see herzjesu25/K.txt
+// TODO почему фокальная длина меняется от того что мы уменьшаем картинку? почему именно в такой пропорции? может надо домножать? или делить на downscale^2 ?
+
+// но temple47 - не вышло, я не разобрался в чем с ним проблема, может быть слишком мало точек, может критерии фильтрации выкидышей для него слишком строги
 //#define DATASET_DIR                  "temple47"
 //#define DATASET_DOWNSCALE            1
 //#define DATASET_F                    (1520.4 / DATASET_DOWNSCALE) // see temple47/README.txt about K-matrix (i.e. focal length = K11 from templeR_par.txt)
 
-//#define DATASET_DIR                  "herzjesu25"
-//#define DATASET_DOWNSCALE            2 // для ускорения SIFT
-//#define DATASET_F                    (2761.5 / DATASET_DOWNSCALE) // see herzjesu25/K.txt
-
-#define DATASET_DIR                  "saharov32"
-#define DATASET_DOWNSCALE            4 // для ускорения SIFT
-#define DATASET_F                    (6342.1 / DATASET_DOWNSCALE)
+// Специальный датасет прямо с Марса!
+/*
+#define DATASET_DIR                  "perseverance25"
+#define DATASET_DOWNSCALE            1
+#define DATASET_F                    4720.4
+// на этом датасете фотографии длиннофокусные, поэтому многие лучи почти колинеарны, поэтому этот фильтр подавляет все точки и третья камера не подвыравнивается
+#undef  ENABLE_OUTLIERS_FILTRATION_COLINEAR
+#define ENABLE_OUTLIERS_FILTRATION_COLINEAR 0
+ */
+// и в целом все плохо... у меня не получилось выравнять этот датасет нашим простым прототипом
 //________________________________________________________________________________
 
 
@@ -111,9 +134,7 @@ void runBA(std::vector<vector3d> &tie_points,
 TEST (SFM, ReconstructNViews) {
     using namespace cv;
 
-    // Мы используем камеры из датасета temple47
-    // Чтобы было проще - упорядочим их заранее в файле data/src/datasets/temple47/ordered_filenames.txt
-    // Камеры templeR0001 и templeR0030 - почти совпадают, поэтому не будем работать с templeR0001 (осталось 46 камер)
+    // Чтобы было проще - картинки упорядочены заранее в файле data/src/datasets/DATASETNAME/ordered_filenames.txt
     std::vector<cv::Mat> imgs;
     std::vector<std::string> imgs_labels;
     {
@@ -131,6 +152,7 @@ TEST (SFM, ReconstructNViews) {
                 throw std::runtime_error("Can't read image: " + to_string(img_path));
             }
 
+            // выполняем уменьшение картинки если оригинальные картинки в этом датасете - слишком большие для используемой реализации SIFT
             int downscale = DATASET_DOWNSCALE;
             while (downscale > 1) {
                 cv::pyrDown(img, img);
@@ -145,6 +167,8 @@ TEST (SFM, ReconstructNViews) {
 
     phg::Calibration calib(imgs[0].cols, imgs[0].rows);
     calib.f_ = DATASET_F;
+
+    // сверяем что все картинки одинакового размера (мы ведь предполагаем что их снимала одна и та же камера с одними и те же интринсиками)
     for (const auto &img : imgs) {
         rassert(img.cols == imgs[0].cols && img.rows == imgs[0].rows, 34125412512512);
     }
@@ -279,7 +303,7 @@ TEST (SFM, ReconstructNViews) {
                 int track_id = track_ids[i_camera_prev][match.trainIdx];
                 if (track_id != -1) {
                     if (tracks[track_id].disabled)
-                        continue;
+                        continue; // пропускаем выключенные точки (признанные выбросами)
                     Xs.push_back(tie_points[track_id]);
                     cv::Vec2f pt = keypoints0[match.queryIdx].pt;
                     xs.push_back(pt);
@@ -288,6 +312,7 @@ TEST (SFM, ReconstructNViews) {
         }
 
         std::cout << "Append camera #" << i_camera << " (" << imgs_labels[i_camera] << ") to alignment via " << Xs.size() << " common points" << std::endl;
+        rassert(Xs.size() > 0, 2318254129859128305);
         matrix34d P = phg::findCameraMatrix(calib0, Xs, xs, false);
 
         cameras[i_camera] = P;
@@ -320,7 +345,7 @@ TEST (SFM, ReconstructNViews) {
                     tracks.push_back(track);
                 } else {
                     if (tracks[track_id].disabled)
-                        continue;
+                        continue; // пропускаем выключенные точки (признанные выбросами)
                     Track &track = tracks[track_id];
                     track.img_kpt_pairs.push_back({i_camera, match.queryIdx});
                     track_ids[i_camera][match.queryIdx] = track_id;
@@ -335,7 +360,9 @@ TEST (SFM, ReconstructNViews) {
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
         phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras.ply", tie_points_colors);
 
+        // Запуск Bundle Adjustment
         runBA(tie_points, tracks, keypoints, cameras, ncameras, calib);
+
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
         phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras_ba.ply", tie_points_colors);
     }
@@ -351,6 +378,9 @@ public:
                     const T* camera_intrinsics, // внутренние калибровочные параметры камеры: [5] = {k1, k2, f, cx, cy} (одни и те же для всех кадров, т.к. снято на одну и ту же камеру)
                     const T* point_global,      // 3D точка: [3]  = {x, y, z}
                     T* residuals) const {       // невязка:  [2]  = {dx, dy}
+        // TODO реализуйте функцию проекции, все нужно делать в типе T чтобы ceres-solver мог под него подставить как Jet (очень рекомендую посмотреть Jet.h - как класная статья из википедии!), так и double
+        // почти наверняка вам пригодится ceres::AngleAxisRotatePoint
+
         T point_local[3];
         // translation[3] - сдвиг в локальную систему координат камеры
         const T *camera_translation = camera_extrinsics + 0;
@@ -544,14 +574,16 @@ void runBA(std::vector<vector3d> &tie_points,
         problem.SetParameterization(camera1_extrinsics, new ceres::SubsetParameterization(6, {0, 1, 2}));
     }
 
-    ceres::Solver::Options options;
-    options.linear_solver_type = ceres::DENSE_SCHUR;
-    options.minimizer_progress_to_stdout = verbose;
-    ceres::Solver::Summary summary;
-    Solve(options, &problem, &summary);
+    if (ENABLE_BA) {
+        ceres::Solver::Options options;
+        options.linear_solver_type = ceres::DENSE_SCHUR;
+        options.minimizer_progress_to_stdout = verbose;
+        ceres::Solver::Summary summary;
+        Solve(options, &problem, &summary);
 
-    if (verbose) {
-        std::cout << summary.BriefReport() << std::endl;
+        if (verbose) {
+            std::cout << summary.BriefReport() << std::endl;
+        }
     }
 
     std::cout << "After BA ";
@@ -629,10 +661,9 @@ void runBA(std::vector<vector3d> &tie_points,
                 vector3d ray0 = cv::normalize(track_point - camera0_origin);
                 vector3d ray1 = cv::normalize(track_point - camera_origin);
                 double rays_cos = fabs(ray0.dot(ray1));
-//                if (rays_cos > 0.99) { // 0.99 = cos(8.1 degrees)
                 if (rays_cos > 0.999) { // 0.999 = cos(2.5 degrees)
                     // почти параллельны
-                    if (ENABLE_OUTLIERS_FILTRATION_COLINEAR)
+                    if (ENABLE_OUTLIERS_FILTRATION_COLINEAR && ENABLE_BA)
                         should_be_disabled = true;
                 }
             }
@@ -641,7 +672,7 @@ void runBA(std::vector<vector3d> &tie_points,
                 double z = track_in_camera[2];
                 if (z < 0.0) {
                     // за спиной камеры
-                    if (ENABLE_OUTLIERS_FILTRATION_NEGATIVE_Z)
+                    if (ENABLE_OUTLIERS_FILTRATION_NEGATIVE_Z && ENABLE_BA)
                         should_be_disabled = true;
                 }
             }
@@ -660,7 +691,7 @@ void runBA(std::vector<vector3d> &tie_points,
                     cameras_inliers_mse[camera_id] += error2;
                     ++cameras_inliers[camera_id];
                 } else {
-                    if (ENABLE_OUTLIERS_FILTRATION_3_SIGMA)
+                    if (ENABLE_OUTLIERS_FILTRATION_3_SIGMA && ENABLE_BA)
                         should_be_disabled = true;
                 }
                 ++nprojections;
@@ -684,7 +715,6 @@ void runBA(std::vector<vector3d> &tie_points,
         std::cout << "    Camera #" << camera_id << " projections: " << to_percent(ninls, nproj) << "% inliers "
                   << "(" << ninls << "/" << nproj << ") with MSE=" << mse << std::endl;
         ASSERT_GT(ninls, 0.25 * nproj);
-        ASSERT_LT(mse, 0.75);
     }
 
     for (auto ptr : reprojection_residuals_for_deletion) {
