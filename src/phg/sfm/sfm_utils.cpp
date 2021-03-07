@@ -22,7 +22,7 @@ void phg::randomSample(std::vector<int> &dst, int max_id, int sample_size, uint6
 {
     dst.clear();
 
-    const int max_attempts = 1000;
+    const int max_attempts = 1500;
 
     for (int i = 0; i < sample_size; ++i) {
         for (int k = 0; k < max_attempts; ++k) {
