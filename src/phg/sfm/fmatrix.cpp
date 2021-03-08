@@ -126,8 +126,8 @@ namespace {
         // https://en.wikipedia.org/wiki/Random_sample_consensus#Parameters
         // будет отличаться от случая с гомографией
         const int n_samples = 8;
-        const int n_trials = 7000;
-        uint64_t seed = 1;
+        const int n_trials = 1000;
+        uint64_t seed = 12;
 
         int best_support = 0;
         cv::Matx33d best_F;
