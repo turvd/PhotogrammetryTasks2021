@@ -27,7 +27,7 @@
 
 // TODO когда заработает при малом количестве фотографий - увеличьте это ограничение до 100 чтобы попробовать обработать все фотографии (если же успешно будут отрабаывать только N фотографий - отправьте PR выставив здесь это N)
 #define NIMGS_LIMIT                           10 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
-#define INTRINSICS_CALIBRATION_MIN_IMGS       5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длинну и т.п.) - из соображений что "пока камер мало - наблюдений может быть недостаточно чтобы не сойтись к ложной внутренней модели камеры"
+#define INTRINSICS_CALIBRATION_MIN_IMGS       5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длину и т.п.) - из соображений что "пока камер мало - наблюдений может быть недостаточно чтобы не сойтись к ложной внутренней модели камеры"
 
 #define ENABLE_INSTRINSICS_K1_K2              1 // TODO учитывать ли радиальную дисторсию - коэффициенты k1, k2 попробуйте с ним и и без saharov32, заметна ли разница?
 #define INTRINSIC_K1_K2_MIN_IMGS              7 // начиная со скольки камер начинать оптимизировать k1, k2
@@ -63,7 +63,7 @@
 /*
 #define DATASET_DIR                  "perseverance25"
 #define DATASET_DOWNSCALE            1
-#define DATASET_F                    4720.4
+#define DATASET_F                    (4720.4 / DATASET_DOWNSCALE)
 // на этом датасете фотографии длиннофокусные, поэтому многие лучи почти колинеарны, поэтому этот фильтр подавляет все точки и третья камера не подвыравнивается
 #undef  ENABLE_OUTLIERS_FILTRATION_COLINEAR
 #define ENABLE_OUTLIERS_FILTRATION_COLINEAR 0
@@ -532,7 +532,9 @@ void runBA(std::vector<vector3d> &tie_points,
     }
 
     if (ncameras < INTRINSICS_CALIBRATION_MIN_IMGS) {
-        // Полностью фиксируем внутренние калибровочные параметры камеры, т.к. 
+        // Полностью фиксируем внутренние калибровочные параметры камеры,
+        // т.к. пока что наблюдений мало, и мы можем сойтись к какому-то неправильному решению которое потом не выйдет спасти
+        // иначе говоря пока наблюдений мало - лучше уменьшить число степеней свободы, чтобы не испортить решение фатально
         problem.SetParameterBlockConstant(camera_intrinsics);
     } else {
         if (ncameras < INTRINSIC_K1_K2_MIN_IMGS) {
@@ -690,12 +692,12 @@ void runBA(std::vector<vector3d> &tie_points,
     }
 }
 
-void generateTiePointsCloud(const std::vector<vector3d> tie_points,
-                            const std::vector<Track> tracks,
-                            const std::vector<std::vector<cv::KeyPoint>> keypoints,
-                            const std::vector<cv::Mat> imgs,
-                            const std::vector<char> aligned,
-                            const std::vector<matrix34d> cameras,
+void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
+                            const std::vector<Track> &tracks,
+                            const std::vector<std::vector<cv::KeyPoint>> &keypoints,
+                            const std::vector<cv::Mat> &imgs,
+                            const std::vector<char> &aligned,
+                            const std::vector<matrix34d> &cameras,
                             int ncameras,
                             std::vector<vector3d> &tie_points_and_cameras,
                             std::vector<cv::Vec3b> &tie_points_colors)

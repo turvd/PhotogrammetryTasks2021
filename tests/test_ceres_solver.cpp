@@ -81,39 +81,39 @@ TEST (CeresSolver, HelloWorld1) {
 // Сначала надо определить функтор находящий расстояние до нашей фиксированной прямой:
 class DistanceToFixedLine {
 public:
-    DistanceToFixedLine(const double linePoint[3], const double normal[3]) {
+    DistanceToFixedLine(const double linePoint[3], const double lineDirection[3]) {
         double normal_len2 = 0.0;
         for (int d = 0; d < 3; ++d) {
-            normal_len2 += normal[d] * normal[d];
+            normal_len2 += lineDirection[d] * lineDirection[d];
         }
         double normal_len = sqrt(normal_len2);
 
         for (int d = 0; d < 3; ++d) {
             this->linePoint[d] = linePoint[d];
-            this->normal[d] = normal[d] / normal_len;
+            this->lineDirection[d] = lineDirection[d] / normal_len;
         }
     }
     template <typename T>
     bool operator()(const T* const queryPoint, T* residual) const {
-        // Расстояние от точки-запроса queryPoint до прямой можно найти через векторное произведение: |(queryPoint-linePoint) x normal|
+        // Расстояние от точки-запроса queryPoint до прямой можно найти через векторное произведение: |(queryPoint-linePoint) x lineDirection|
         // Важно делать все вычисления в T, чтобы ceres-solver мог подставив туда вместо double - Jet - автоматически посчитать якобиан.
-        // Хорошее правило - в функторе никогда не должно быть double переменных (например linePoint[3] и normal[3] мы кастим к T).
+        // Хорошее правило - в функторе никогда не должно быть double переменных (например linePoint[3] и lineDirection[3] мы кастим к T).
         T linePointToQuery[3];
         T n[3];
         for (int d = 0; d < 3; ++d) {
             linePointToQuery[d] = queryPoint[d] - linePoint[d]; // здесь происходит неявное преобразование double linePoint[d] к T-типу
-            n[d] = (T) normal[d]; // здесь происходит преобразование double normal[d] к T-типу (который может быть как double, так и Jet)
+            n[d] = (T) lineDirection[d]; // здесь происходит преобразование double lineDirection[d] к T-типу (который может быть как double, так и Jet)
         }
         T crossProduct[3];
         ceres::CrossProduct<T>(linePointToQuery, n, crossProduct);
 
-        T distance = ceres::DotProduct(crossProduct, crossProduct);
+        T distance = ceres::sqrt(ceres::DotProduct(crossProduct, crossProduct));
         residual[0] = distance;
         return true;
     }
 protected:
     double linePoint[3];
-    double normal[3];
+    double lineDirection[3];
 };
 
 // Теперь надо определить функтор находящий расстояние до нашего фиксированного упрощенного параболоида вида: z = a*(x-centerX)^2 + b*(y-centerY)^2 + centerZ
@@ -146,11 +146,11 @@ TEST (CeresSolver, HelloWorld2) {
 
     // Формулируем обе Cost Function
     const double line_point[3]  = {10.0, 5.0, 0.0};
-    const double line_normal[3] = {0.0, 0.0, 1.0};
+    const double line_direction[3] = {0.0, 0.0, 1.0};
     ceres::CostFunction* line_cost_function = new ceres::AutoDiffCostFunction<DistanceToFixedLine,
             1, // количество невязок (размер искомого residual массива переданного в функтор, т.е. размерность искомой невязки)
             3> // число параметров в каждом блоке параметров, у нас один блок параметров из трех координат точек
-            (new DistanceToFixedLine(line_point, line_normal));
+            (new DistanceToFixedLine(line_point, line_direction));
 
     const double paraboloid_center[3] = {5.0, 10.0, 100.0};
     const double paraboloid_a = 2.0;
@@ -244,10 +244,12 @@ TEST (CeresSolver, HelloWorld2) {
 // Пусть есть сколько-то шумных замеров (потенциально включающих еще и выбросы), хочется их зафиттить прямой
 //______________________________________________________________________________________________________________________
 
+typedef std::array<double, 2> double_2; // то же самое что и "const double point[2]" но компилируется под clang на Mac OS
+
 // Сначала надо определить функтор находящий расстояние от конкретной точки-сэмпла до нашей искомой прямой:
 class PointObservationError {
 public:
-    PointObservationError(const double point[2]) {
+    PointObservationError(const double_2 point) {
         for (int d = 0; d < 2; ++d) {
             samplePoint[d] = point[d];
         }
@@ -276,7 +278,7 @@ double calcDistanceToLine2D(double x, double y, const double* abc) {
     return dist;
 }
 
-void evaluateLine(const std::vector<double[2]> &points, const double* line, double sigma, double &fitted_inliers_fraction, double &mean_inliers_distance);
+void evaluateLine(const std::vector<double_2> &points, const double* line, double sigma, double &fitted_inliers_fraction, double &mean_inliers_distance);
 
 void evaluateLineFitting(double sigma, double &fitted_inliers_fraction, double &mean_inliers_distance, double outliers_fraction=0.0, bool use_huber=false) {
     const double ideal_line[3] = {0.5, -1.0, 100.0}; // 0.5*x - y + 100 = 0
@@ -284,7 +286,7 @@ void evaluateLineFitting(double sigma, double &fitted_inliers_fraction, double &
     const size_t n_points = 1000;
     const size_t n_points_outliers = (size_t) (n_points * outliers_fraction);
 
-    std::vector<double[2]> points(n_points);
+    std::vector<double_2> points(n_points);
 
     std::default_random_engine r(212512512391);
 
@@ -396,7 +398,7 @@ void evaluateLineFitting(double sigma, double &fitted_inliers_fraction, double &
     }
 }
 
-void evaluateLine(const std::vector<double[2]> &points, const double* line,
+void evaluateLine(const std::vector<double_2> &points, const double* line,
                   double sigma, double &fitted_inliers_fraction, double &mse_inliers_distance) {
     size_t n = points.size();
     size_t inliers = 0;
