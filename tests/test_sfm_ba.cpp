@@ -114,12 +114,12 @@ namespace {
 
 }
 
-void generateTiePointsCloud(const std::vector<vector3d> tie_points,
-                            const std::vector<Track> tracks,
-                            const std::vector<std::vector<cv::KeyPoint>> keypoints,
-                            const std::vector<cv::Mat> imgs,
-                            const std::vector<char> aligned,
-                            const std::vector<matrix34d> cameras,
+void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
+                            const std::vector<Track> &tracks,
+                            const std::vector<std::vector<cv::KeyPoint>> &keypoints,
+                            const std::vector<cv::Mat> &imgs,
+                            const std::vector<char> &aligned,
+                            const std::vector<matrix34d> &cameras,
                             int ncameras,
                             std::vector<vector3d> &tie_points_and_cameras,
                             std::vector<cv::Vec3b> &tie_points_colors);
