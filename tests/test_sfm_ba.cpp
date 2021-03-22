@@ -22,11 +22,11 @@
 #include <ceres/ceres.h>
 
 // TODO включите Bundle Adjustment (но из любопытства посмотрите как ведет себя реконструкция без BA например для saharov32 без BA)
-#define ENABLE_BA                             0
+#define ENABLE_BA                             1
 // TODO и раскомментируйте вызов runBA ниже
 
 // TODO когда заработает при малом количестве фотографий - увеличьте это ограничение до 100 чтобы попробовать обработать все фотографии (если же успешно будут отрабаывать только N фотографий - отправьте PR выставив здесь это N)
-#define NIMGS_LIMIT                           10 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
+#define NIMGS_LIMIT                           100 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
 #define INTRINSICS_CALIBRATION_MIN_IMGS       5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длину и т.п.) - из соображений что "пока камер мало - наблюдений может быть недостаточно чтобы не сойтись к ложной внутренней модели камеры"
 
 #define ENABLE_INSTRINSICS_K1_K2              1 // TODO учитывать ли радиальную дисторсию - коэффициенты k1, k2 попробуйте с ним и и без saharov32, заметна ли разница?
@@ -285,7 +285,7 @@ TEST (SFM, ReconstructNViews) {
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
         phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras.ply", tie_points_colors);
 
-//        runBA(tie_points, tracks, keypoints, cameras, ncameras, calib);
+        runBA(tie_points, tracks, keypoints, cameras, ncameras, calib);
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
         phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras_ba.ply", tie_points_colors);
     }
@@ -380,27 +380,50 @@ public:
                     const T* point_global,      // 3D точка: [3]  = {x, y, z}
                     T* residuals) const {       // невязка:  [2]  = {dx, dy}
         // TODO реализуйте функцию проекции, все нужно делать в типе T чтобы ceres-solver мог под него подставить как Jet (очень рекомендую посмотреть Jet.h - как класная статья из википедии!), так и double
+        // почти наверняка вам пригодится ceres::AngleAxisRotatePoint
 
+        T point_local[3];
         // translation[3] - сдвиг в локальную систему координат камеры
+        const T *camera_translation = camera_extrinsics + 0;
+        for (int d = 0; d < 3; ++d) {
+            point_local[d] = point_global[d] - camera_translation[d];
+        }
 
         // rotation[3] - angle-axis rotation, поворачиваем точку point->p (чтобы перейти в локальную систему координат камеры)
         // подробнее см. https://en.wikipedia.org/wiki/Axis%E2%80%93angle_representation
         // (P.S. у камеры всмысле вращения три степени свободы)
+        T p[3];
+        const T *camera_angle_axis_rotation = camera_extrinsics + 3;
+        ceres::AngleAxisRotatePoint(camera_angle_axis_rotation, point_local, p);
 
         // Проецируем точку на фокальную плоскость матрицы (т.е. плоскость Z=фокальная длина), тем самым переводя в пиксели
+        const T focal = camera_intrinsics[2];
+        T x = focal * p[0] / p[2];
+        T y = focal * p[1] / p[2];
 
 #if ENABLE_INSTRINSICS_K1_K2
         // k1, k2 - коэффициенты радиального искажения (radial distortion)
+        const T *camera_k1_k2 = camera_intrinsics + 0;
+        T k1 = camera_k1_k2[0];
+        T k2 = camera_k1_k2[1];
+        T r2 = x * x + y * y;
+        T r4 = r2 * r2;
+        x = x * (1.0 + k1 * r2 + k2 * r4);
+        y = y * (1.0 + k1 * r2 + k2 * r4);
 #endif
 
         // Из координат когда точка (0, 0) - центр оптической оси
         // Переходим в координаты когда точка (0, 0) - левый верхний угол картинки
         // cx, cy - координаты центра оптической оси (обычно это центр картинки, но часто он чуть смещен)
+        const T *camera_cx_cy = camera_intrinsics + 3;
+        x += camera_cx_cy[0];
+        y += camera_cx_cy[1];
 
-        // Теперь по спроецированным координатам не забудьте посчитать невязку репроекции
+        // Нашли невязку репроекции
+        residuals[0] = x - observed_x;
+        residuals[1] = y - observed_y;
 
         return true;
-        // TODO сверьте эту функцию с вашей реализацией проекции в src/phg/core/calibration.cpp (они должны совпадать)
     }
 protected:
     double observed_x;
@@ -430,8 +453,7 @@ void runBA(std::vector<vector3d> &tie_points,
     ASSERT_NEAR(calib.cy_, 0.0, 0.3 * calib.height());
 
     // внутренние калибровочные параметры камеры: [5] = {k1, k2, f, cx, cy}
-    // TODO: преобразуйте calib в блок параметров камеры (ее внутренних характеристик) для оптимизации в BA
-    double camera_intrinsics[5];
+    double camera_intrinsics[5] = {calib.k1_, calib.k2_, calib.f_, calib.cx_ + 0.5 * calib.width(), calib.cy_ + 0.5 * calib.height()};
     std::cout << "Before BA ";
     printCamera(camera_intrinsics);
 
@@ -569,8 +591,12 @@ void runBA(std::vector<vector3d> &tie_points,
 
     std::cout << "After BA ";
     printCamera(camera_intrinsics);
-    // TODO преобразуйте параметры камеры в обратную сторону, чтобы последующая резекция учла актуальное представление о пространстве:
-    // calib.* = camera_intrinsics[*];
+
+    calib.k1_ = camera_intrinsics[0];
+    calib.k2_ = camera_intrinsics[1];
+    calib.f_ = camera_intrinsics[2];
+    calib.cx_ = camera_intrinsics[3] - 0.5 * calib.width();
+    calib.cy_ = camera_intrinsics[4] - 0.5 * calib.height();
 
     ASSERT_NEAR(calib.f_ , DATASET_F, 0.2 * DATASET_F);
     ASSERT_NEAR(calib.cx_, 0.0, 0.3 * calib.width());
@@ -618,6 +644,7 @@ void runBA(std::vector<vector3d> &tie_points,
         Track &track = tracks[i];
         bool should_be_disabled = false;
 
+        vector3d camera0_origin;
         vector3d track_point = tie_points[i];
 
         for (size_t ci = 0; ci < track.img_kpt_pairs.size(); ++ci) {
@@ -631,8 +658,19 @@ void runBA(std::vector<vector3d> &tie_points,
 
             matrix3d R; vector3d camera_origin;
             phg::decomposeUndistortedPMatrix(R, camera_origin, cameras[camera_id]);
-
-            if (ENABLE_OUTLIERS_FILTRATION_NEGATIVE_Z && ENABLE_BA) {
+            if (ci == 0) {
+                camera0_origin = camera_origin;
+            } else {
+                vector3d ray0 = cv::normalize(track_point - camera0_origin);
+                vector3d ray1 = cv::normalize(track_point - camera_origin);
+                double rays_cos = fabs(ray0.dot(ray1));
+                if (rays_cos > 0.999) { // 0.999 = cos(2.5 degrees)
+                    // почти параллельны
+                    if (ENABLE_OUTLIERS_FILTRATION_COLINEAR && ENABLE_BA)
+                        should_be_disabled = true;
+                }
+            }
+            {
                 vector3d track_in_camera = R * (track_point - camera_origin);
                 double z = track_in_camera[2];
                 if (z < 0.0) {
@@ -640,11 +678,6 @@ void runBA(std::vector<vector3d> &tie_points,
                     if (ENABLE_OUTLIERS_FILTRATION_NEGATIVE_Z && ENABLE_BA)
                         should_be_disabled = true;
                 }
-            }
-
-            if (ENABLE_OUTLIERS_FILTRATION_COLINEAR && ENABLE_BA) {
-                // TODO выполните проверку случая когда два луча почти параллельны, чтобы не было странных точек улетающих на бесконечность (например чтобы угол был хотя бы 2.5 градуса)
-                // should_be_disabled = true;
             }
 
             {
