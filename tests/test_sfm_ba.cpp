@@ -396,10 +396,9 @@ public:
         const T *camera_angle_axis_rotation = camera_extrinsics + 3;
         ceres::AngleAxisRotatePoint(camera_angle_axis_rotation, point_local, p);
 
-        // Проецируем точку на фокальную плоскость матрицы (т.е. плоскость Z=фокальная длина), тем самым переводя в пиксели
-        const T focal = camera_intrinsics[2];
-        T x = focal * p[0] / p[2];
-        T y = focal * p[1] / p[2];
+        // Проецируем точки на единичную плоскость (т.е. плоскость Z=1.0)
+        T x = p[0] / p[2];
+        T y = p[1] / p[2];
 
 #if ENABLE_INSTRINSICS_K1_K2
         // k1, k2 - коэффициенты радиального искажения (radial distortion)
@@ -411,6 +410,11 @@ public:
         x = x * (1.0 + k1 * r2 + k2 * r4);
         y = y * (1.0 + k1 * r2 + k2 * r4);
 #endif
+
+        // Проецируем точку на фокальную плоскость матрицы (т.е. плоскость Z=фокальная длина), тем самым переводя в пиксели
+        const T focal = camera_intrinsics[2];
+        x *= focal;
+        y *= focal;
 
         // Из координат когда точка (0, 0) - центр оптической оси
         // Переходим в координаты когда точка (0, 0) - левый верхний угол картинки
