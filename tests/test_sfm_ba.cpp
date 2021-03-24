@@ -115,7 +115,7 @@ namespace {
 }
 
 void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
-                            const std::vector<Track> &tracks,
+                            const std::vector<phg::Track> &tracks,
                             const std::vector<std::vector<cv::KeyPoint>> &keypoints,
                             const std::vector<cv::Mat> &imgs,
                             const std::vector<char> &aligned,
@@ -125,7 +125,7 @@ void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
                             std::vector<cv::Vec3b> &tie_points_colors);
 
 void runBA(std::vector<vector3d> &tie_points,
-           std::vector<Track> &tracks,
+           std::vector<phg::Track> &tracks,
            std::vector<std::vector<cv::KeyPoint>> &keypoints,
            std::vector<matrix34d> &cameras,
            int ncameras,
@@ -222,7 +222,7 @@ TEST (SFM, ReconstructNViews) {
         }
     }
 
-    std::vector<Track> tracks;
+    std::vector<phg::Track> tracks;
     std::vector<vector3d> tie_points;
     std::vector<matrix34d> cameras(n_imgs);
     std::vector<char> aligned(n_imgs);
@@ -270,7 +270,7 @@ TEST (SFM, ReconstructNViews) {
 
             tie_points.push_back(X3d);
 
-            Track track;
+            phg::Track track;
             track.img_kpt_pairs.push_back({0, good_matches_gms[i].queryIdx});
             track.img_kpt_pairs.push_back({1, good_matches_gms[i].trainIdx});
             track_ids[0][good_matches_gms[i].queryIdx] = tracks.size();
@@ -338,7 +338,7 @@ TEST (SFM, ReconstructNViews) {
 
                     tie_points.push_back({X(0) / X(3), X(1) / X(3), X(2) / X(3)});
 
-                    Track track;
+                    phg::Track track;
                     track.img_kpt_pairs.push_back({i_camera, match.queryIdx});
                     track.img_kpt_pairs.push_back({i_camera_prev, match.trainIdx});
                     track_ids[i_camera][match.queryIdx] = tracks.size();
@@ -347,7 +347,7 @@ TEST (SFM, ReconstructNViews) {
                 } else {
                     if (tracks[track_id].disabled)
                         continue; // пропускаем выключенные точки (признанные выбросами)
-                    Track &track = tracks[track_id];
+                    phg::Track &track = tracks[track_id];
                     track.img_kpt_pairs.push_back({i_camera, match.queryIdx});
                     track_ids[i_camera][match.queryIdx] = track_id;
                 }
@@ -442,7 +442,7 @@ void printCamera(double* camera_intrinsics)
 }
 
 void runBA(std::vector<vector3d> &tie_points,
-           std::vector<Track> &tracks,
+           std::vector<phg::Track> &tracks,
            std::vector<std::vector<cv::KeyPoint>> &keypoints,
            std::vector<matrix34d> &cameras,
            int ncameras,
@@ -504,7 +504,7 @@ void runBA(std::vector<vector3d> &tie_points,
 
     // Создаем невязки для всех проекций 3D точек в камеры (т.е. для всех наблюдений этих ключевых точек)
     for (size_t i = 0; i < tie_points.size(); ++i) {
-        const Track &track = tracks[i];
+        const phg::Track &track = tracks[i];
         for (size_t ci = 0; ci < track.img_kpt_pairs.size(); ++ci) {
             int camera_id = track.img_kpt_pairs[ci].first;
             int keypoint_id = track.img_kpt_pairs[ci].second;
@@ -645,7 +645,7 @@ void runBA(std::vector<vector3d> &tie_points,
 
     size_t next_loss_k = 0;
     for (size_t i = 0; i < tie_points.size(); ++i) {
-        Track &track = tracks[i];
+        phg::Track &track = tracks[i];
         bool should_be_disabled = false;
 
         vector3d camera0_origin;
@@ -730,7 +730,7 @@ void runBA(std::vector<vector3d> &tie_points,
 }
 
 void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
-                            const std::vector<Track> &tracks,
+                            const std::vector<phg::Track> &tracks,
                             const std::vector<std::vector<cv::KeyPoint>> &keypoints,
                             const std::vector<cv::Mat> &imgs,
                             const std::vector<char> &aligned,
@@ -745,7 +745,7 @@ void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
     tie_points_colors.clear();
 
     for (int i = 0; i < (int) tie_points.size(); ++i) {
-        const Track &track = tracks[i];
+        const phg::Track &track = tracks[i];
         if (track.disabled)
             continue;
 
