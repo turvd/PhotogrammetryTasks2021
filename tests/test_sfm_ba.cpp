@@ -16,6 +16,7 @@
 #include <phg/sfm/defines.h>
 #include <phg/sfm/triangulation.h>
 #include <phg/sfm/resection.h>
+#include <phg/utils/cameras_bundler_export.h>
 #include <phg/utils/point_cloud_export.h>
 
 #include <ceres/rotation.h>
@@ -29,7 +30,8 @@
 #define NIMGS_LIMIT                           100 // сколько фотографий обрабатывать (можно выставить меньше чтобы ускорить экспериментирование, или в случае если весь датасет не выравнивается)
 #define INTRINSICS_CALIBRATION_MIN_IMGS       5 // начиная со скольки камер начинать оптимизировать внутренние параметры камеры (фокальную длину и т.п.) - из соображений что "пока камер мало - наблюдений может быть недостаточно чтобы не сойтись к ложной внутренней модели камеры"
 
-#define ENABLE_INSTRINSICS_K1_K2              1 // TODO учитывать ли радиальную дисторсию - коэффициенты k1, k2 попробуйте с ним и и без saharov32, заметна ли разница?
+#define ENABLE_INTRINSICS_CX_CY               0 // выключаем т.к. bundler .out формат не поддерживает смещение оптической оси (см. cameras_bundler_export.h)
+#define ENABLE_INTRINSICS_K1_K2               0 // учитывать ли радиальную дисторсию - коэффициенты k1, k2
 #define INTRINSIC_K1_K2_MIN_IMGS              7 // начиная со скольки камер начинать оптимизировать k1, k2
 
 // TODO попробуйте повыключать эти фильтрации выбросов, насколько изменился результат?
@@ -99,18 +101,6 @@ namespace {
 
         return cos_vals;
     }
-
-    // one track corresponds to one 3d point
-    class Track {
-    public:
-        Track()
-        {
-            disabled = false;
-        }
-
-        bool disabled;
-        std::vector<std::pair<int, int>> img_kpt_pairs;
-    };
 
 }
 
@@ -366,6 +356,9 @@ TEST (SFM, ReconstructNViews) {
 
         generateTiePointsCloud(tie_points, tracks, keypoints, imgs, aligned, cameras, ncameras, tie_points_and_cameras, tie_points_colors);
         phg::exportPointCloud(tie_points_and_cameras, std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/point_cloud_" + to_string(ncameras) + "_cameras_ba.ply", tie_points_colors);
+
+        phg::exportCameras(std::string("data/debug/test_sfm_ba/") + DATASET_DIR + "/cameras_" + to_string(ncameras) + ".out",
+                cameras, ncameras, calib, tie_points, tracks, keypoints, DATASET_DOWNSCALE);
     }
 }
 
@@ -400,7 +393,7 @@ public:
         T x = p[0] / p[2];
         T y = p[1] / p[2];
 
-#if ENABLE_INSTRINSICS_K1_K2
+#if ENABLE_INTRINSICS_K1_K2
         // k1, k2 - коэффициенты радиального искажения (radial distortion)
         const T *camera_k1_k2 = camera_intrinsics + 0;
         T k1 = camera_k1_k2[0];
@@ -565,6 +558,9 @@ void runBA(std::vector<vector3d> &tie_points,
     } else {
         if (ncameras < INTRINSIC_K1_K2_MIN_IMGS) {
             problem.SetParameterization(camera_intrinsics, new ceres::SubsetParameterization(5, {0, 1}));
+        }
+        if (!ENABLE_INTRINSICS_CX_CY) {
+            problem.SetParameterization(camera_intrinsics, new ceres::SubsetParameterization(5, {3, 4}));
         }
     }
 

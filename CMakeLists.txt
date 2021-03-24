@@ -115,6 +115,8 @@ set(SOURCES
         src/phg/sfm/sfm_utils.h
         src/phg/sfm/triangulation.cpp
         src/phg/sfm/triangulation.h
+        src/phg/utils/cameras_bundler_export.cpp
+        src/phg/utils/cameras_bundler_export.h
         src/phg/utils/point_cloud_export.cpp
         src/phg/utils/point_cloud_export.h
         )
