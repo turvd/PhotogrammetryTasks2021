@@ -147,7 +147,7 @@ TEST (SFM, ReconstructNViews) {
             std::string img_name;
             in >> img_name;
             std::string img_path = std::string("data/src/datasets/") + DATASET_DIR + "/" + img_name;
-            cv::Mat img = cv::imread(img_path);
+            cv::Mat img = cv::imread(img_path, cv::IMREAD_COLOR | cv::IMREAD_IGNORE_ORIENTATION); // чтобы если камера записала в exif-tag повернута она была или нет - мы получили сырую картинку, без поворота с учетом этой информации, ведь одну и ту же камеру могли повернуть по-разному (напр. saharov32)
 
             if (img.empty()) {
                 throw std::runtime_error("Can't read image: " + to_string(img_path));
