@@ -3,6 +3,7 @@
 #include <vector>
 #include <phg/sfm/defines.h>
 #include <phg/sfm/sfm_utils.h>
+#include <phg/core/calibration.h>
 
 
 namespace phg {

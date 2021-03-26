@@ -2,6 +2,10 @@
 
 #include <fstream>
 
+#include <libutils/rasserts.h>
+
+#include <phg/sfm/ematrix.h>
+
 
 // See abound bundler .out v0.3 format in 'Output format and scene representation' section:
 // https://www.cs.cornell.edu/~snavely/bundler/bundler-v0.4-manual.html#S6
@@ -12,8 +16,8 @@ void phg::exportCameras(const std::string &path,
                  const std::vector<vector3d> &tie_points,
                  const std::vector<phg::Track> &tracks,
                  const std::vector<std::vector<cv::KeyPoint>> &keypoints,
-                 int downscale=1,
-                 const std::vector<cv::Vec3b> *tie_points_colors=nullptr)
+                 int downscale,
+                 const std::vector<cv::Vec3b> *tie_points_colors)
 {
     rassert(tie_points.size() == tracks.size(), 23921931291023);
 
@@ -60,10 +64,6 @@ void phg::exportCameras(const std::string &path,
             Rbundler(0, i) = R(0, i);
             Rbundler(1, i) = -R(1, i);
             Rbundler(2, i) = -R(2, i);
-
-//            Rbundler(0, i) = -R(1, i);
-//            Rbundler(1, i) = -R(0, i);
-//            Rbundler(2, i) = -R(2, i);
         }
         
         for (int j = 0; j < 3; ++j) {
@@ -85,7 +85,6 @@ void phg::exportCameras(const std::string &path,
 //    <point2>
 //    ...
 //    <pointM>
-    std::vector<size_t> cameras_next_keypoint_index(ncameras, 0);
     for (size_t pi = 0; pi < tracks.size(); ++pi) {
         if (tracks[pi].disabled)
             continue;
@@ -115,20 +114,20 @@ void phg::exportCameras(const std::string &path,
             filestream << camera_key << " ";
 
             // <key> the index of the SIFT keypoint where the point was detected in that camera
-            size_t kp_index = cameras_next_keypoint_index[camera_key];
-            ++cameras_next_keypoint_index[camera_key];
-            filestream << kp_index << " ";
+            size_t kpt = tracks[pi].img_kpt_pairs[i].second;
+            filestream << kpt << " ";
 
-            int kpt = tracks[pi].img_kpt_pairs[i].second;
-            cv::Vec2f px = keypoints[camera_key][kpt].pt * downscale;
+            cv::Vec2f px = keypoints[camera_key][kpt].pt;
 
             // The pixel positions are floating point numbers in a coordinate system where the origin is the center of the image,
             // the x-axis increases to the right, and the y-axis increases towards the top of the image.
             // Thus, (-w/2, -h/2) is the lower-left corner of the image, and (w/2, h/2) is the top-right corner (where w and h are the width and height of the image).
-            double x = px[0] - sensor_calibration.width() * downscale / 2.0;
-            double y = sensor_calibration.height()* downscale / 2.0 - px[1];
+            double x = px[0] - sensor_calibration.width() / 2.0;
+            double y = sensor_calibration.height() / 2.0 - px[1];
+            x *= downscale;
+            y *= downscale;
+
             filestream << x << " " << y << " ";
-            std::cout << px[0] << " " << px[1] << " -> " << x << " " << y << std::endl;
         }
         filestream << std::endl;
     }
