@@ -129,13 +129,14 @@ void phg::importCameras(const std::string &path,
         filestream >> tie_points[pi][0] >> tie_points[pi][1] >> tie_points[pi][2];
 
 //        <color>         [a 3-vector describing the RGB color of the point]
+        int r, g, b;
+        filestream >> r >> g >> b;
         if (tie_points_colors != nullptr) {
             rassert(tie_points_colors->size() == tracks.size(), 239123921931088);
             std::vector<cv::Vec3b> &colors = *tie_points_colors;
-            filestream >> colors[pi][0] >> colors[pi][1] >> colors[pi][2];
-        } else {
-            cv::Vec3b colors;
-            filestream >> colors[0] >> colors[1] >> colors[2];
+            colors[pi][0] = r;
+            colors[pi][1] = g;
+            colors[pi][2] = b;
         }
 
         //        <view list>     [a list of views the point is visible in]

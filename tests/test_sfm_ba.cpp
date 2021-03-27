@@ -22,6 +22,9 @@
 #include <ceres/rotation.h>
 #include <ceres/ceres.h>
 
+#include "utils/test_utils.h"
+
+
 // TODO включите Bundle Adjustment (но из любопытства посмотрите как ведет себя реконструкция без BA например для saharov32 без BA)
 #define ENABLE_BA                             1
 // TODO и раскомментируйте вызов runBA ниже
@@ -103,16 +106,6 @@ namespace {
     }
 
 }
-
-void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
-                            const std::vector<phg::Track> &tracks,
-                            const std::vector<std::vector<cv::KeyPoint>> &keypoints,
-                            const std::vector<cv::Mat> &imgs,
-                            const std::vector<char> &aligned,
-                            const std::vector<matrix34d> &cameras,
-                            int ncameras,
-                            std::vector<vector3d> &tie_points_and_cameras,
-                            std::vector<cv::Vec3b> &tie_points_colors);
 
 void runBA(std::vector<vector3d> &tie_points,
            std::vector<phg::Track> &tracks,
@@ -725,45 +718,3 @@ void runBA(std::vector<vector3d> &tie_points,
     }
 }
 
-void generateTiePointsCloud(const std::vector<vector3d> &tie_points,
-                            const std::vector<phg::Track> &tracks,
-                            const std::vector<std::vector<cv::KeyPoint>> &keypoints,
-                            const std::vector<cv::Mat> &imgs,
-                            const std::vector<char> &aligned,
-                            const std::vector<matrix34d> &cameras,
-                            int ncameras,
-                            std::vector<vector3d> &tie_points_and_cameras,
-                            std::vector<cv::Vec3b> &tie_points_colors)
-{
-    rassert(tie_points.size() == tracks.size(), 24152151251241);
-
-    tie_points_and_cameras.clear();
-    tie_points_colors.clear();
-
-    for (int i = 0; i < (int) tie_points.size(); ++i) {
-        const phg::Track &track = tracks[i];
-        if (track.disabled)
-            continue;
-
-        int img = track.img_kpt_pairs.front().first;
-        int kpt = track.img_kpt_pairs.front().second;
-        cv::Vec2f px = keypoints[img][kpt].pt;
-        tie_points_and_cameras.push_back(tie_points[i]);
-        tie_points_colors.push_back(imgs[img].at<cv::Vec3b>(px[1], px[0]));
-    }
-
-    for (int i_camera = 0; i_camera < ncameras; ++i_camera) {
-        if (!aligned[i_camera]) {
-            throw std::runtime_error("camera " + std::to_string(i_camera) + " is not aligned");
-        }
-
-        matrix3d R;
-        vector3d O;
-        phg::decomposeUndistortedPMatrix(R, O, cameras[i_camera]);
-
-        tie_points_and_cameras.push_back(O);
-        tie_points_colors.push_back(cv::Vec3b(0, 0, 255));
-        tie_points_and_cameras.push_back(O + R.t() * cv::Vec3d(0, 0, 1));
-        tie_points_colors.push_back(cv::Vec3b(255, 0, 0));
-    }
-}
