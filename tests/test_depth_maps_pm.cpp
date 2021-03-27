@@ -129,8 +129,10 @@ Dataset loadDataset()
                 
             vector3d px = phg::project(tie_point, dataset.calibration, dataset.cameras_P[ci]);
 
-            // TODO проверяем project->unproject на идемпотентность
+            // проверяем project->unproject на идемпотентность
             // при отладке удобно у отлаживаемого цикла закомментировать #pragma omp parallel for
+            // еще можно наспамить много project-unproject вызвов строчка за строчкой, чтобы при отладке не перезапускать программу
+            // а просто раз за разом просматривать как проходит исполнение этих функций до понимания что пошло не так
             vector3d point_test = phg::unproject(px, dataset.calibration, phg::invP(dataset.cameras_P[ci]));
 
             vector3d diff = tie_point - point_test;
@@ -143,7 +145,7 @@ Dataset loadDataset()
             depth_max = std::max(depth_max, depth);
         }
 
-        // TODO имеет смысл расширить диапазон глубины, т.к. ключевые точки по которым он построен - лишь ориентир
+        // имеет смысл расширить диапазон глубины, т.к. ключевые точки по которым он построен - лишь ориентир
         double depth_range = depth_max - depth_min;
         depth_min = std::max(depth_min - 0.25 * depth_range, depth_min / 2.0);
         depth_max =          depth_max + 0.25 * depth_range;
