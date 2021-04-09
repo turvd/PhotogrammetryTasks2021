@@ -47,14 +47,14 @@ namespace phg {
         return pixel_with_depth;
     }
 
-    // TODO 101 реализуйте unproject (вам поможет тест на идемпотентность project -> unproject в test_depth_maps_pm)
+    // TODO реализуйте unproject (вам поможет тест на идемпотентность project -> unproject)
     vector3d unproject(const vector3d &pixel, const phg::Calibration &calibration, const matrix34d &PtoWorld)
     {
         double depth = pixel[2]; // на самом деле это не глубина, это координата по оси +Z (вдоль которой смотрит камера в ее локальной системе координат)
 
-        vector3d local_point; // TODO 102 пустите луч pixel из calibration а затем возьмите ан нем точку у которой по оси +Z координата=depth
+        vector3d local_point = calibration.unproject(vector2d(pixel[0], pixel[1])) * depth;
 
-        vector3d global_point; // TODO 103 переведите точку из локальной системы в глобальную
+        vector3d global_point = PtoWorld * homogenize(local_point);
 
         return global_point;
     }
@@ -116,16 +116,13 @@ namespace phg {
                     n0 = normal_map.at<vector3f>(j, i);
 
                     // 2) случайной пертурбации текущей гипотезы (мутация и уточнение того что уже смогли найти)
-                    dp = r.nextf(d0 * 0.5f, d0 * 1.5); // TODO 104: сделайте так чтобы отклонение было тем меньше, чем номер итерации ближе к NITERATIONS, улучшило ли это результат?
-                    np = cv::normalize(n0 + randomNormalObservedFromCamera(cameras_RtoWorld[ref_cam], r) * 0.5); // TODO 105: сделайте так чтобы отклонение было тем меньше, чем номер итерации ближе к NITERATIONS, улучшило ли это результат?
-
+                    dp = r.nextf(d0 * 0.95f, d0 * 1.05); // TODO 101: сделайте так чтобы отклонение было тем меньше, чем номер итерации ближе к NITERATIONS, улучшило ли это результат?
+                    np = cv::normalize(n0 + randomNormalObservedFromCamera(cameras_RtoWorld[ref_cam], r) * 0.25); // TODO 102: сделайте так чтобы отклонение было тем меньше, чем номер итерации ближе к NITERATIONS, улучшило ли это результат?
                     dp = std::max(ref_depth_min, std::min(ref_depth_max, dp));
 
                     // 3) новой случайной гипотезы из фрустума поиска (новые идеи, вечный поиск во всем пространстве)
-                    // TODO 106: создайте случайную гипотезу dr+nr, вам поможет:
-                    //  - r.nextf(...)
-                    //  - ref_depth_min, ref_depth_max
-                    //  - randomNormalObservedFromCamera - поможет создать нормаль которая гарантированно смотрит на нас 
+                    dr = r.nextf(ref_depth_min, ref_depth_max);
+                    nr = randomNormalObservedFromCamera(cameras_RtoWorld[ref_cam], r); // нормаль гарантированно смотрит на нас
                 }
 
                 float    best_depth  = d0;
@@ -160,7 +157,7 @@ namespace phg {
                     if (total_cost < best_cost) {
                         best_depth  = d;
                         best_normal = n;
-                        best_cost   = total_cost; // TODO 206: добавьте подсчет статистики, какая комбинация гипотез чаще всего побеждает? есть ли комбинации на которых мы можем сэкономить? а какие гипотезы при refinement рассматривает например Colmap?
+                        best_cost   = total_cost; // TODO 102: добавьте подсчет статистики, какая комбинация гипотез чаще всего побеждает? есть ли комбинации на которых мы можем сэкономить?
                     }
                 }
 
@@ -255,10 +252,11 @@ namespace phg {
                     tryToPropagateDonor(i + 1*PROPAGATION_STEP, j + 0*PROPAGATION_STEP, chessboard_pattern_step, hypos_depth, hypos_normal, hypos_cost);
                     tryToPropagateDonor(i + 0*PROPAGATION_STEP, j + 1*PROPAGATION_STEP, chessboard_pattern_step, hypos_depth, hypos_normal, hypos_cost);
                     
-                    // TODO 201 переделайте чтобы было как в ACMH:
-                    // TODO 202 - паттерн донорства
-                    // TODO 203 - логика про "берем 8 лучших по их личной оценке - по их личному cost" и только их примеряем уже на себя для рассчета cost в нашей точке
-                    // TODO 301 - сделайте вместо наивного переноса depth+normal в наш пиксель - логику про "пересекли луч из нашего пикселя с плоскостью которую задает донор-сосед" и оценку cost в нашей точке тогда можно провести для более релевантной точки-пересечения 
+                    // TODO переделайте чтобы было как в ACMH:
+                    // - паттерн донорства
+                    // - логика про "берем 8 лучших по их личной оценке - по их личному cost" и только их примеряем уже на себя для рассчета cost в нашей точке
+
+                    // TODO сделайте вместо наивного переноса depth+normal в наш пиксель - логику про "пересекли луч из нашего пикселя с плоскостью которую задает донор-сосед" и оценку cost в нашей точке тогда можно провести для более релевантной точки-пересечения 
 
                     float    best_depth  = depth_map.at<float>(j, i);
                     vector3f best_normal = normal_map.at<vector3f>(j, i);
@@ -330,7 +328,7 @@ namespace phg {
                 patch0.push_back(cameras_imgs_grey[ref_cam].at<unsigned char>(nj, ni) / 255.0f);
 
                 vector3d point_on_ray  = unproject(vector3d(ni + 0.5, nj + 0.5, 1.0), calibration, cameras_PtoWorld[ref_cam]);
-                vector3d camera_center = unproject(vector3d(ni + 0.5, nj + 0.5, 0.0), calibration, cameras_PtoWorld[ref_cam]); // TODO 204: это немного неестественный способ, можно поправить его на более явный вариант, например хранить центр камер в поле cameras_O
+                vector3d camera_center = unproject(vector3d(ni + 0.5, nj + 0.5, 0.0), calibration, cameras_PtoWorld[ref_cam]); // TODO: это извращенный способ, поправьте его на что-нибудь адекватное, например храните центр камер в поле cameras_O
 
                 vector3d ray_dir = cv::normalize(point_on_ray - camera_center);
                 vector3d ray_org = camera_center;
@@ -347,43 +345,71 @@ namespace phg {
                 double x = neighb_proj[0];
                 double y = neighb_proj[1];
 
-                // TODO 205: замените этот наивный вариант nearest neighbor сэмплирования текстуры на билинейную интерполяцию (учтите что центр пикселя - .5 после запятой)
-                ptrdiff_t u = x;
-                ptrdiff_t v = y;
+                // TODO замените этот наивный вариант с nearest neighbor на билинейную интерполяцию
+                ptrdiff_t u = (size_t) (x - 0.5);
+                ptrdiff_t v = (size_t) (y - 0.5);
+                float du = x - (u + 0.5f);
+                float dv = y - (v + 0.5f);
 
-                // TODO 108: добавьте проверку "попали ли мы в камеру номер neighb_cam?" если не попали - возвращаем NO_COST
+                // TODO добавьте проверку "попали ли мы в камеру номер neighb_cam?" если не попали - возвращаем NO_COST
+                if (u < 0 || v < 0 || u + 1 >= calibration.width() || v + 1 >= calibration.height())
+                    return NO_COST;
 
-                float intensity = cameras_imgs_grey[neighb_cam].at<unsigned char>(v, u) / 255.0f;
-                patch1.push_back(intensity);
+                float intensity00 = cameras_imgs_grey[neighb_cam].at<unsigned char>(v, u) / 255.0f;
+                float intensity10 = cameras_imgs_grey[neighb_cam].at<unsigned char>(v, u + 1) / 255.0f;
+                float intensity01 = cameras_imgs_grey[neighb_cam].at<unsigned char>(v + 1, u) / 255.0f;
+                float intensity11 = cameras_imgs_grey[neighb_cam].at<unsigned char>(v + 1, u + 1) / 255.0f;
+                float intensity = 0.0f;
+                float w_sum = 0.0f;
+                float w = 0.0f;
+                w = (1.0f - du) * (1.0f - dv); intensity += intensity00 * w; w_sum += w;
+                w = (       du) * (1.0f - dv); intensity += intensity10 * w; w_sum += w;
+                w = (1.0f - du) * (       dv); intensity += intensity01 * w; w_sum += w;
+                w = (       du) * (       dv); intensity += intensity11 * w; w_sum += w;
+                patch1.push_back(intensity / w_sum);
             }
         }
 
-        // TODO 109: реализуйте ZNCC https://en.wikipedia.org/wiki/Cross-correlation#Zero-normalized_cross-correlation_(ZNCC)
+        // TODO реализуйте ZNCC https://en.wikipedia.org/wiki/Cross-correlation#Zero-normalized_cross-correlation_(ZNCC)
         // или слайд #25 в лекции 5 про SGM и Cost-функции - https://my.compscicenter.ru/attachments/classes/slides_w2n8WNLY/photogrammetry_lecture_090321.pdf
         rassert(patch0.size() == patch1.size(), 12489185129326);
         size_t n = patch0.size();
         float mean0 = 0.0f;
         float mean1 = 0.0f;
-        // ...
+        float meanSqr0 = 0.0f;
+        float meanSqr1 = 0.0f;
         for (size_t k = 0; k < n; ++k) {
             float a = patch0[k];
             float b = patch1[k];
             mean0 += a;
             mean1 += b;
-            // ...
+            meanSqr0 += a*a;
+            meanSqr1 += b*b;
         }
         mean0 /= n;
         mean1 /= n;
-        // ...
-        float zncc = 0.0f;
+        meanSqr0 /= n;
+        meanSqr1 /= n;
 
-        // ZNCC в диапазоне [-1; 1], 1: идеальное совпадение, -1: ничего общего
-        rassert(zncc == zncc, 23141241210380); // проверяем что не nan
+        float dev0 = sqrtf(std::max(0.0f, meanSqr0 - mean0 * mean0));
+        float dev1 = sqrtf(std::max(0.0f, meanSqr1 - mean1 * mean1));
+        
+        const float MIN_DEV = 0.00001;
+        if (dev0 < MIN_DEV || dev1 < MIN_DEV)
+            return NO_COST;
+
+        float zncc = 0.0f;
+        for (size_t k = 0; k < n; ++k) {
+            float a = patch0[k];
+            float b = patch1[k];
+            zncc += (a - mean0) * (b - mean1);
+        }
+        zncc /= dev0 * dev1 * n;
+
+        // ZNCC in range [-1; 1], 1: perfect match, -1: no correlation
+        rassert(zncc == zncc, 23141241210380); // check that not nan
         zncc = std::max(-1.0f, std::min(1.0f, zncc));
         rassert(zncc >= -1.0 && zncc <= 1.0, 141251251541357);
-
-        // переводим в cost от [0; 1] (NO_COST=1)
-        // чем ближе cost к нулю - тем лучше сопоставление
         float cost = (1.0f - zncc) / 2.0f;
         rassert(cost >= 0.0f && cost <= NO_COST, 23123912049102361);
         
@@ -398,16 +424,25 @@ namespace phg {
         std::sort(costs.begin(), costs.end());
 
         float best_cost = costs[0];
-
+        
         float cost_sum = best_cost;
         float cost_w = 1.0f;
 
-        // TODO 110 реализуйте какое-то "усреднение cost-ов по всем соседям", с ограничением что участвуют только COSTS_BEST_K_LIMIT лучших
-        // TODO 111 добавьте к этому усреднению еще одно ограничение: если cost больше чем best_cost*COSTS_K_RATIO - то такой cost подозрительно плохой и мы его не хотим учитывать (вероятно occlusion)
-        // TODO 112 а что если в пикселе occlusion, но best_cost - большой и поэтому отсечение по best_cost*COSTS_K_RATIO не срабатывает? можно ли это отсечение как-то выправить для такого случая?
-        // TODO 207 а что если добавить какой-нибудь бонус в случае если больше чем Х камер засчиталось? улучшается/ухудшается ли от этого что-то на herzjezu25? а при большем числе фотографий
+        for (int k = 1; k < COSTS_BEST_K_LIMIT && k < costs.size(); ++k) {
+            float cost = costs[k];
+            // TODO а что если в пикселе occlusion и даже best_cost - велик? можно ли это отсечение как-то выправить для такого случая?
+            if (cost > best_cost * COSTS_K_RATIO || cost > GOOD_COST)
+                break;
 
+            cost_sum += cost;
+            cost_w += 1.0f;
+        }
+
+        // TODO добавьте бонус в случае если больше чем Х камер засчиталось
         float avg_cost = cost_sum / cost_w;
+        if (cost_w >= 2.0) {
+            avg_cost /= 2.0f;
+        }
         return avg_cost;
     }
 
@@ -486,5 +521,34 @@ namespace phg {
         exportPointCloud(point_cloud_all, DEBUG_DIR + label + "_all_rgb.ply", point_cloud_all_bgr, point_cloud_all_normal);
         exportPointCloud(point_cloud_good, DEBUG_DIR + label + "_good_rgb.ply", point_cloud_good_bgr, point_cloud_good_normal);
         exportPointCloud(point_cloud_good, DEBUG_DIR + label + "_good_costs.ply", point_cloud_good_cost, point_cloud_good_normal);
+    }
+
+    void PMDepthMapsBuilder::buildGoodPoints(const cv::Mat &depth_map, const cv::Mat &normal_map, const cv::Mat &cost_map, const cv::Mat &img,
+                                const phg::Calibration &calibration, const matrix34d &PtoWorld,
+                                std::vector<cv::Vec3d> &points, std::vector<cv::Vec3b> &colors, std::vector<cv::Vec3d> &normals)
+    {
+        ptrdiff_t width = calibration.width();
+        ptrdiff_t height = calibration.height();
+
+        for (ptrdiff_t j = 0; j < height; ++j) {
+            for (ptrdiff_t i = 0; i < width; ++i) {
+                float depth = depth_map.at<float>(j, i);
+                float cost = cost_map.at<float>(j, i);
+                vector3d normal = normal_map.at<vector3f>(j, i);
+
+                if (depth == NO_DEPTH || cost == NO_COST)
+                    continue;
+
+                cv::Vec3d p = unproject(vector3d(i + 0.5, j + 0.5, depth), calibration, PtoWorld);
+                cv::Vec3b bgr = img.at<cv::Vec3b>(j, i);
+
+                if (cost > GOOD_COST)
+                    continue;
+
+                points.push_back(p);
+                colors.push_back(bgr);
+                normals.push_back(normal);
+            }
+        }
     }
 }

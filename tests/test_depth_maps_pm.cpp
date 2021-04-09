@@ -37,6 +37,29 @@ public:
     Dataset() : ncameras(0), calibration(0, 0)
     {}
 
+    Dataset subset(size_t from, size_t to) const
+    {
+        Dataset res = *this;
+
+        rassert(from < to, 23481294812944);
+        res.ncameras = to - from;
+        rassert(ncameras >= 2, 123419481245);
+
+        res.cameras_imgs = std::vector<cv::Mat>(cameras_imgs.begin() + from, cameras_imgs.begin() + to);
+        res.cameras_imgs_grey = std::vector<cv::Mat>(cameras_imgs_grey.begin() + from, cameras_imgs_grey.begin() + to);
+        res.cameras_labels = std::vector<std::string>(cameras_labels.begin() + from, cameras_labels.begin() + to);
+        res.cameras_P = std::vector<matrix34d>(cameras_P.begin() + from, cameras_P.begin() + to);
+        res.cameras_keypoints = std::vector<std::vector<cv::KeyPoint>>(cameras_keypoints.begin() + from, cameras_keypoints.begin() + to);
+
+        res.cameras_depth_min = std::vector<float>(cameras_depth_min.begin() + from, cameras_depth_min.begin() + to);
+        res.cameras_depth_max = std::vector<float>(cameras_depth_max.begin() + from, cameras_depth_max.begin() + to);
+
+        res.tracks.clear();
+        res.tie_points.clear();
+
+        return res;
+    }
+
     size_t                                  ncameras;
 
     std::vector<cv::Mat>                    cameras_imgs;
@@ -182,4 +205,34 @@ TEST (DepthMap, FirstStereoPair) {
     dataset.ncameras = cameras_limit;
     cv::Mat depth_map, normal_map, cost_map;
     builder.buildDepthMap(ci, depth_map, cost_map, normal_map, dataset.cameras_depth_min[ci], dataset.cameras_depth_max[ci]);
+}
+
+TEST (DepthMap, AllDepthMaps) {
+    Dataset full_dataset = loadDataset();
+    
+    const size_t ref_camera_shift = 2;
+    const size_t to_shift = 5;
+
+    std::vector<cv::Vec3d> all_points;
+    std::vector<cv::Vec3b> all_colors;
+    std::vector<cv::Vec3d> all_normals;
+    
+    size_t ndepth_maps = 0;
+    
+    for (size_t from = 0; from + to_shift < full_dataset.ncameras; ++from) {
+        size_t to = from + to_shift;
+
+        Dataset dataset = full_dataset.subset(from, to);
+        
+        phg::PMDepthMapsBuilder builder(dataset.ncameras, dataset.cameras_imgs, dataset.cameras_imgs_grey, dataset.cameras_labels, dataset.cameras_P, dataset.calibration);
+        cv::Mat depth_map, normal_map, cost_map;
+        builder.buildDepthMap(ref_camera_shift, depth_map, cost_map, normal_map, dataset.cameras_depth_min[ref_camera_shift], dataset.cameras_depth_max[ref_camera_shift]);
+        phg::PMDepthMapsBuilder::buildGoodPoints(depth_map, normal_map, cost_map,
+                                                 dataset.cameras_imgs[ref_camera_shift], dataset.calibration, builder.cameras_PtoWorld[ref_camera_shift],
+                                                 all_points, all_colors, all_normals);
+        ++ndepth_maps;
+
+        std::string tie_points_filename = std::string("data/debug/test_depth_maps_pm/") + getTestName() + "/all_points_" + to_string(ndepth_maps) + ".ply";
+        phg::exportPointCloud(all_points, tie_points_filename, all_colors, all_normals);
+    }
 }
