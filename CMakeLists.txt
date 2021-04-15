@@ -81,6 +81,18 @@ find_package(Ceres 2.0.0 REQUIRED)
 #     в CLion это делается через File->Settings->Build, Execution, Deployment->CMake->CMake options: -DCeres_DIR=<ПОПРАВЬТЕ ЭТОТ ПУТЬ>\ceres-solver-2.0.0\install_dir\CMake
 #     (стоит добавить и к Debug сборке)
 
+find_package(CGAL REQUIRED COMPONENTS Core)
+
+# CGAL_USE_FILE doesn't work with RelWithDebInfo
+set(CMAKE_BUILD_TYPE_BEFORE_CGAL ${CMAKE_BUILD_TYPE})
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+    set(CMAKE_BUILD_TYPE "Release")
+endif ()
+include(${CGAL_USE_FILE})
+set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE_BEFORE_CGAL})
+
+set(CGAL_DEPENDENCIES_LIBRARIES ${MPFR_LIBRARIES} ${GMP_LIBRARIES})
+
 set(SOURCES
         src/phg/core/calibration.cpp
         src/phg/core/calibration.h
@@ -106,6 +118,12 @@ set(SOURCES
         src/phg/mvs/depth_maps/pm_fast_random.h
         src/phg/mvs/depth_maps/pm_geometry.cpp
         src/phg/mvs/depth_maps/pm_geometry.h
+        src/phg/mvs/model_min_cut/bk_solver/graph.cpp
+        src/phg/mvs/model_min_cut/bk_solver/maxflow.cpp
+        src/phg/mvs/model_min_cut/min_cut_cgal_structs.cpp
+        src/phg/mvs/model_min_cut/min_cut_cgal_structs.h
+        src/phg/mvs/model_min_cut/min_cut_model_builder.cpp
+        src/phg/mvs/model_min_cut/min_cut_model_builder.h
         src/phg/sfm/defines.h
         src/phg/sfm/ematrix.cpp
         src/phg/sfm/ematrix.h
@@ -125,6 +143,8 @@ set(SOURCES
         src/phg/utils/cameras_bundler_export.h
         src/phg/utils/cameras_bundler_import.cpp
         src/phg/utils/cameras_bundler_import.h
+        src/phg/utils/mesh_export.cpp
+        src/phg/utils/mesh_export.h
         src/phg/utils/point_cloud_export.cpp
         src/phg/utils/point_cloud_export.h
         )
@@ -141,6 +161,7 @@ set(LIBRARIES
         ${OpenMP_CXX_LIBRARIES}
         Eigen3::Eigen
         Ceres::ceres
+        ${CGAL_DEPENDENCIES_LIBRARIES}
         )
 
 add_library(${PROJECT_NAME} ${SOURCES})
@@ -163,6 +184,7 @@ add_executable(test_sfm             tests/test_sfm.cpp              ${TEST_SOURC
 add_executable(test_ceres_solver    tests/test_ceres_solver.cpp     ${TEST_SOURCES})
 add_executable(test_sfm_ba          tests/test_sfm_ba.cpp           ${TEST_SOURCES})
 add_executable(test_depth_maps_pm   tests/test_depth_maps_pm.cpp    ${TEST_SOURCES})
+add_executable(test_mesh_min_cut    tests/test_mesh_min_cut.cpp     ${TEST_SOURCES})
 
 target_link_libraries(test_sift          ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
 target_link_libraries(test_matching      ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
@@ -170,3 +192,4 @@ target_link_libraries(test_sfm           ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIB
 target_link_libraries(test_ceres_solver  ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
 target_link_libraries(test_sfm_ba        ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
 target_link_libraries(test_depth_maps_pm ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
+target_link_libraries(test_mesh_min_cut  ${PROJECT_NAME} ${LIBRARIES} ${TEST_LIBRARIES})
