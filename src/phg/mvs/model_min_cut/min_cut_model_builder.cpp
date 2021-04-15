@@ -50,9 +50,6 @@ void MinCutModelBuilder::appendToTriangulation(unsigned int camera_id, const vec
         double r = radiuses[i];
         cv::Vec3b color = colors[i];
         vector3d normal = normals[i];
-        
-        const double merge_threshold = r * MERGE_THRESHOLD_RADIUS_KOEF;
-        const double merge_threshold2 = merge_threshold * merge_threshold;
 
         bool to_merge = false; // хотим решить - надо ли очередную точку объединить с уже существующей ближайшей вершиной, или же добавить в триангуляцию как новую вершину
 
@@ -65,13 +62,8 @@ void MinCutModelBuilder::appendToTriangulation(unsigned int camera_id, const vec
         } else {
             // проверяем насколько ближайшая точка далеко
             vector3d np = from_cgal_point(nearest_vertex->point());
-            // TODO 1000 реализуйте проверку merge_threshold2
-            // TODO 5000 поэкспериментируйте со значением MERGE_THRESHOLD_RADIUS_KOEF, есть ли интересности? какое значение вы бы предложили использовать в условной финальной версии? 
-            if (phg::norm2(np - p) < merge_threshold2) {
-                to_merge = true;
-            } else {
-                to_merge = false;
-            }
+            // TODO 2001 appendToTriangulation(): реализуйте нормальную проверку объединять ли точку с уже добавленной ранее (с учетом r и MERGE_THRESHOLD_RADIUS_KOEF)
+            to_merge = false;
         }
 
         vertex_info_t p_info(camera_id, color);
@@ -314,10 +306,6 @@ void MinCutModelBuilder::buildMesh(std::vector<cv::Vec3i> &mesh_faces, std::vect
     vector3d bb_min, bb_max;
     insertBoundingBoxVertices(bb_min, bb_max);
 
-    // TODO подвиньте вершины в среднюю координату среди всех точек которые в ней зачлись
-    // TODO как можно ускорить реализацию? есть ли идеи? попробуйте это сделать (и запишите какого ускорения получилось добиться, а так же изменился ли результат)
-    // P.S. если будете распараллеливать - убедитесь что вы заменили triangulation.incident_cells() на triangulation.incident_cells_threadsafe()...
-
     size_t ncells = 0;
     for (auto ci = proxy->triangulation.all_cells_begin(); ci != proxy->triangulation.all_cells_end(); ++ci) {
         ci->info().cell_id = ncells++;
@@ -333,7 +321,7 @@ void MinCutModelBuilder::buildMesh(std::vector<cv::Vec3i> &mesh_faces, std::vect
     size_t nrays = 0;
     for (auto vi = proxy->triangulation.all_vertices_begin(); vi != proxy->triangulation.all_vertices_end(); ++vi) {
         if (vi->info().camera_ids.size() == 0) {
-            // TODO подумайте и напишите тут какие вершины бывают без камер вообще? почему мы их пропускаем? что и почему случится если убрать это пропускание?
+            // TODO 2004 подумайте и напишите тут какие вершины бывают без камер вообще? почему мы их пропускаем? что и почему случится если убрать это пропускание?
             continue;
         }
 
@@ -414,7 +402,7 @@ void MinCutModelBuilder::buildMesh(std::vector<cv::Vec3i> &mesh_faces, std::vect
                     rassert(next_cell == proxy->triangulation.locate(to_cgal_point(camera_center)), 238791248120328); // проверяем это
                     // добавляем пропускной способности из истока к ячейке с камерой (к тетрагедрончику содержащему точку центра камеры)
                     next_cell->info().s_capacity += LAMBDA_IN;
-                    // TODO изменится ли что-то если сильно увеличить пропускные способности ребер от истока? (т.е. сделать пропускную способность из истока равной бесконечности?)
+                    // TODO 2005 изменится ли что-то если сильно увеличить пропускные способности ребер от истока? (т.е. сделать пропускную способность из истока равной бесконечности?)
                 }
             }
             avg_triangles_intersected_per_ray += steps;
@@ -493,22 +481,8 @@ void MinCutModelBuilder::buildMesh(std::vector<cv::Vec3i> &mesh_faces, std::vect
 
             cv::Vec3i face;
 
-            // TODO добавьте проверку - не опирается ли треугольник на одну из фиктивных вершин (лежащих на гранях вспомогательного bounding box и в его центре), можете для этого использовать bb_min и bb_max, или добавьте явный флаг в каждую вершину
+            // TODO 2002 добавьте проверку - не опирается ли треугольник на одну из фиктивных вершин (лежащих на гранях вспомогательного bounding box и в его центре), можете для этого использовать bb_min и bb_max, или добавьте явный флаг в каждую вершину
             // иначе говоря сделайте так чтобы такие треугольники не добавлялись в результирующую модель эти большие красные треугольники
-            bool is_connects_with_bounding_box = false;
-            vector3d bb_center = (bb_min + bb_max) / 2.0;
-            for (int v_index = 1; v_index <= 3; ++v_index) {
-                auto vi = ci->vertex((i + v_index) % 4);
-                vector3d p = from_cgal_point(vi->point());
-                for (int d = 0; d < 3; ++d) {
-                    if (p[d] == bb_min[d] || p[d] == bb_max[d] || p[d] == bb_center[d]) {
-                        is_connects_with_bounding_box = true;
-                    }
-                }
-            }
-            if (is_connects_with_bounding_box) {
-                continue;
-            }
 
             for (int v_index = 1; v_index <= 3; ++v_index) {
                 auto vi = ci->vertex((i + v_index) % 4);
@@ -519,12 +493,9 @@ void MinCutModelBuilder::buildMesh(std::vector<cv::Vec3i> &mesh_faces, std::vect
                 face[v_index - 1] = surface_vertex_id;
             }
 
-            // TODO некоторые треугольники выглядят темными в результирующей модели, проблема уходит если выключить в MeshLab освещение (кнопка желтой лампочка - Light on/off) которое учитывает нормаль, которая строится с учетом порядка вершин треугольника (по часовой стрелке или против)
+            // TODO 2003 некоторые треугольники выглядят темными в результирующей модели, проблема уходит если выключить в MeshLab освещение (кнопка желтой лампочка - Light on/off) которое учитывает нормаль, которая строится с учетом порядка вершин треугольника (по часовой стрелке или против)
             // иначе говоря оказывается что порядок обхода вершин в треугольнике не всегда корректен
             // подумайте чем это вызывано и поправьте (лучше всего это делать посматривая на картинку 'Figure 44.1' в документации https://doc.cgal.org/latest/Triangulation_3/index.html )
-            if (i % 2 == 1) {
-                std::swap(face[0], face[1]);
-            }
 
             mesh_faces.push_back(face);
         }
@@ -564,3 +535,18 @@ void MinCutModelBuilder::buildMesh(std::vector<cv::Vec3i> &mesh_faces, std::vect
     debugSavePointCloud("surface", debug_surface_points);
     debugSavePointCloud("non_surface", debug_non_surface_points);
 }
+
+// TODO 3001 сделайте пропускные способности на ребрах не единичными а затухающими тем сильнее чем ближе к поверхности
+// TODO 3002 сделайте соединение со стоком в ячейке не сразу за вершиной, а на небольшом углублении (пропорционально размеру точки)
+
+// TODO 3500 Weak support: реализуйте идею из jancosek2011 - Multi-View Reconstruction Preserving Weakly-Supported Surfaces - https://compsciclub.ru/attachments/classes/file_XyLpDjLx/jancosek2011.pdf
+
+// TODO 4001 подвиньте вершины в среднюю координату среди всех точек которые в ней зачлись
+// TODO 4002 поэкспериментируйте со значением MERGE_THRESHOLD_RADIUS_KOEF, есть ли интересности? какое значение вы бы предложили использовать в условной финальной версии?
+// TODO 4003 добавьте усреднение цветов среди всех склеившихся вершин, приложите скриншот с/без усреднения
+
+// TODO 5001 как в целом можно ускорить реализацию? есть ли идеи? попробуйте это сделать (и запишите какого ускорения получилось добиться, а так же изменился ли результат)
+// подсказки-идеи:
+// TODO 5002 а не рапараллелить ли? если будете распараллеливать - убедитесь что вы заменили triangulation.incident_cells() на triangulation.incident_cells_threadsafe()...
+// TODO 5003 не слишком ли часто вызывается triangulation.locate()? может оно тормозит? (поиск ячейки содержащей заданную точку)
+// TODO 5004 CGAL::do_intersect проверяет луч и треугольник на пересечение абсолютно точно, и это надежно, но медленно. А что если мы грубо будем проверять пересечения (самописным простым кодом на float-ах)? А когда пересечение не факт что произошло - ну что же, пусть этому лучу не повезло, будем надеяться это не сильно изменит результат? Попробуйте и сравните скорость и результат.

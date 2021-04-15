@@ -82,6 +82,12 @@ find_package(Ceres 2.0.0 REQUIRED)
 #     (стоит добавить и к Debug сборке)
 
 find_package(CGAL REQUIRED COMPONENTS Core)
+# Mac: https://www.cgal.org/download/macosx.html - brew install cgal
+# Linux: https://www.cgal.org/download/linux.html - sudo apt-get install libcgal-dev
+# Windows:
+# 1) Скачать "GMP and MPFR libraries, for Windows 64bits" выложенные в релизах репозитория - https://github.com/CGAL/cgal/releases/tag/v5.2.1
+#    Прямая ссылка - https://github.com/CGAL/cgal/releases/download/v5.2.1/CGAL-5.2.1-win64-auxiliary-libraries-gmp-mpfr.zip
+# 2) TODO... (может через vcpkg? https://doc.cgal.org/latest/Manual/windows.html )
 
 # CGAL_USE_FILE doesn't work with RelWithDebInfo
 set(CMAKE_BUILD_TYPE_BEFORE_CGAL ${CMAKE_BUILD_TYPE})

@@ -95,6 +95,10 @@ std::vector<cv::Mat> loadDepthMaps(const std::string &datasetDir, int downscale,
 }
 
 TEST (test_mesh_min_cut, DepthMapsToPointClouds) {
+    // TODO 1001: запустите test_mesh_min_cut/DepthMapsToPointClouds и убедитесь что облака точек построенные по картам глубины выглядят правдоподобно
+    // Этот тест просто проверяет что логика считывания карт глубины и их интерпретация - работают
+    // Для этого вам надо скачать карты глубины по ссылкам выше (см. "Datasets")
+    // Затем запустить этот тест, в частности он преобразует карты глубины в облака точек, взгляните на них в папке: data/debug/test_mesh_min_cut/DepthMapsToPointClouds
     Dataset dataset = loadDataset(DATASET_DIR, DATASET_DOWNSCALE);
 
     std::vector<cv::Mat> depth_maps = loadDepthMaps(DATASET_DIR, DATASET_DOWNSCALE, dataset);
@@ -123,6 +127,8 @@ TEST (test_mesh_min_cut, DepthMapsToPointClouds) {
 }
 
 TEST (test_mesh_min_cut, FromSingleDepthMap) {
+    // Этот тест просто строит модель на базе одиночной карты глубины
+    // Результаты см. в папке data/debug/test_mesh_min_cut/FromSingleDepthMap
     Dataset dataset = loadDataset(DATASET_DIR, DATASET_DOWNSCALE);
 
     std::vector<cv::Mat> depth_maps = loadDepthMaps(DATASET_DIR, DATASET_DOWNSCALE, dataset);
@@ -159,6 +165,9 @@ TEST (test_mesh_min_cut, FromSingleDepthMap) {
 }
 
 TEST (test_mesh_min_cut, FromAllDepthMaps) {
+    // TODO 1002: запустите test_mesh_min_cut/FromAllDepthMaps и убедитесь что полигональные модели построенные по картам глубины выглядят правдоподобно
+    // Этот тест строит модель на базе всех карт глубин (с учетом опционального ограничения CAMERAS_LIMIT)
+    // Результаты см. в папке data/debug/test_mesh_min_cut/FromAllDepthMaps
     Dataset dataset = loadDataset(DATASET_DIR, DATASET_DOWNSCALE);
 
     std::vector<cv::Mat> depth_maps = loadDepthMaps(DATASET_DIR, DATASET_DOWNSCALE, dataset);
