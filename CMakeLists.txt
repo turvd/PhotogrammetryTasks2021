@@ -84,10 +84,26 @@ find_package(Ceres 2.0.0 REQUIRED)
 find_package(CGAL REQUIRED COMPONENTS Core)
 # Mac: https://www.cgal.org/download/macosx.html - brew install cgal
 # Linux: https://www.cgal.org/download/linux.html - sudo apt-get install libcgal-dev
-# Windows:
-# 1) Скачать "GMP and MPFR libraries, for Windows 64bits" выложенные в релизах репозитория - https://github.com/CGAL/cgal/releases/tag/v5.2.1
-#    Прямая ссылка - https://github.com/CGAL/cgal/releases/download/v5.2.1/CGAL-5.2.1-win64-auxiliary-libraries-gmp-mpfr.zip
-# 2) TODO... (может через vcpkg? https://doc.cgal.org/latest/Manual/windows.html )
+#
+# Windows: https://doc.cgal.org/latest/Manual/windows.html#sec-installing-with-vcpkg
+# 1) Win+R -> cmd -> Enter
+# 2) mkdir&cd C:\...\some\dir\for\vcpkg (потребуется порядка 5 гигабайт свободного места)
+# 3) git clone https://github.com/microsoft/vcpkg
+# 4) cd vcpkg
+# 5) .\bootstrap-vcpkg.bat
+# 6) vcpkg.exe install yasm-tool:x86-windows
+# Следующий шаг займет много времени (минут 30), так что рекомендуется запустить его заранее:
+# 7) vcpkg.exe install cgal:x64-windows
+# 8) Указать для CMake пути (в CLion это делается через File->Settings->Build, Execution, Deployment->CMake->CMake options):
+# -DGMP_LIBRARIES=C:\...\vcpkg\installed\x64-windows\lib\gmp.lib
+# -DGMP_INCLUDE_DIR=C:\...\vcpkg\installed\x64-windows\include
+# -DMPFR_LIBRARIES=C:\...\vcpkg\installed\x64-windows\lib\mpfr.lib
+# -DMPFR_INCLUDE_DIR=C:\...\vcpkg\installed\x64-windows\include
+# -DBoost_INCLUDE_DIR=C:\...\vcpkg\installed\x64-windows\include
+# -DCGAL_DIR=C:\...\vcpkg\x64-windows\share\cgal
+# 9) Скопируйте в папку cmake-build-relwithdebinfo и в папку cmake-build-debug эти два файла:
+# C:\...\vcpkg\installed\x64-windows\bin\gmp.dll
+# C:\...\vcpkg\installed\x64-windows\bin\mpfr-6.dll
 
 # CGAL_USE_FILE doesn't work with RelWithDebInfo
 set(CMAKE_BUILD_TYPE_BEFORE_CGAL ${CMAKE_BUILD_TYPE})
