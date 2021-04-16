@@ -23,4 +23,4 @@ script:
   - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO -DCeres_DIR=/opt/ceres-solver200 ..
   - make -j12
   - cd ..
-  - ./build/test_mesh_min_cut
+#   - ./build/test_mesh_min_cut
