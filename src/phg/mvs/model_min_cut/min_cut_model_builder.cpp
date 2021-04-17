@@ -133,8 +133,8 @@ void MinCutModelBuilder::insertBoundingBoxVertices(vector3d &bb_min, vector3d &b
     vector3d bb_size = bb_max - bb_min;
     double the_biggest_side = std::max(bb_size[0], std::max(bb_size[1], bb_size[2]));
     for (int d = 0; d < 3; ++d) {
-        bb_min[d] -= the_biggest_side;
-        bb_max[d] += the_biggest_side;
+        bb_min[d] -= 2 * the_biggest_side;
+        bb_max[d] += 2 * the_biggest_side;
     }
 
     // вставляем в триангуляцию 3*3*3 точек - углы куба bb_min<->bb_max + точки на серединах его ребер и граней (и в центре тоже вставим точку, но она нам не помешает, пусть будет)
