@@ -2,7 +2,7 @@
 
 [Остальные задания](https://github.com/PhotogrammetryCourse/PhotogrammetryTasks2021/).
 
-# Задание 6. Build model via Triangulation Delaunay + Graph Min-Cut
+# Задание 6. Build model. Triangulation Delaunay + Graph Min-Cut
 
 [![Build Status](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021.svg?branch=task06)](https://travis-ci.com/PhotogrammetryCourse/PhotogrammetryTasks2021)
 
