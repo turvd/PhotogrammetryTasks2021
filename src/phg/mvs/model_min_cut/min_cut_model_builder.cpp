@@ -69,9 +69,6 @@ void MinCutModelBuilder::appendToTriangulation(unsigned int camera_id, const vec
             if (cv::norm(p, np) >= ADD_THRESHOLD_RADIUS_KOEF * radius) {
                 to_add = false;
             }
-            if(!to_merge) {
-                std::cout<<to_merge<<", "<<to_add<<", "<<cv::norm(p, np) / radius<<", "<<cv::norm(p, np)<<", "<<radius<<std::endl;
-            }
         }
 
         vertex_info_t p_info(camera_id, color, radius);
